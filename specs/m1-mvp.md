@@ -6,6 +6,27 @@
 
 Two layers with clean separation:
 
+```
+┌──────────────────────────────────────────────────────────────┐
+│                           CLI                                │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────────────┐  │
+│  │  read   │  │  invoke │  │  write  │  │ format output   │  │
+│  │  files  │  │  core   │  │  files  │  │ (text/json)     │  │
+│  └─────────┘  └─────────┘  └─────────┘  └─────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
+                            │
+                            ▼
+┌──────────────────────────────────────────────────────────────┐
+│                      Core Library                            │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐   │
+│  │   config    │  │   patch     │  │   diff              │   │
+│  │   parsing   │  │   engine    │  │   generation        │   │
+│  └─────────────┘  └─────────────┘  └─────────────────────┘   │
+│                                                              │
+│  No I/O - pure transforms on content                         │
+└──────────────────────────────────────────────────────────────┘
+```
+
 - **Core library**: Config parsing, patch engine, diff generation. No I/O.
 - **CLI**: Reads files, invokes core, writes output, formats results.
 
@@ -184,12 +205,43 @@ Section IDs are GitHub-style slugs from headers, or explicit `{#custom-id}`.
 Resources resolve recursively. Patches accumulate (base → overlay → overlay).
 
 ```
-team/kustomark.yaml
-  → resources: [../company/]
-      → company/kustomark.yaml
-          → resources: [../base/]
-              → base/kustomark.yaml
-                  → resources: ["**/*.md"]
+                    Resolution Order
+                    ════════════════
+
+team/kustomark.yaml ─────────────────────────────────────┐
+  │                                                      │
+  └─▶ resources: [../company/]                           │
+        │                                                │
+        ▼                                                │
+      company/kustomark.yaml ──────────────────────┐     │
+        │                                          │     │
+        └─▶ resources: [../base/]                  │     │
+              │                                    │     │
+              ▼                                    │     │
+            base/kustomark.yaml ─────────┐         │     │
+              │                          │         │     │
+              └─▶ resources: ["**/*.md"] │         │     │
+                                         │         │     │
+                                         ▼         ▼     ▼
+                    Patch Application: base ─▶ company ─▶ team
+```
+
+```
+                    Overlay Example
+                    ═══════════════
+
+     base/                    company/                  team/
+  ┌──────────┐             ┌──────────┐             ┌──────────┐
+  │ *.md     │             │ patches: │             │ patches: │
+  │ files    │────────────▶│  +header │────────────▶│  +footer │
+  │          │             │  -section│             │  replace │
+  └──────────┘             └──────────┘             └──────────┘
+                                                         │
+                                                         ▼
+                                                    ┌──────────┐
+                                                    │  output/ │
+                                                    │  *.md    │
+                                                    └──────────┘
 ```
 
 Multiple resources merge in order (last wins for conflicts).

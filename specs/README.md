@@ -6,6 +6,23 @@
 
 The "upstream fork problem" for markdown: you want to consume markdown from upstream sources but need local customizations without forking.
 
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│    Upstream     │     │  Your Patches   │     │     Output      │
+│    Markdown     │ ──▶ │   (YAML config) │ ──▶ │   (customized)  │
+│                 │     │                 │     │                 │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+
+Without kustomark:
+  • Fork and diverge (lose upstream updates)
+  • Manual sync (tedious, error-prone)
+
+With kustomark:
+  • Declarative patches in version control
+  • Deterministic, reproducible builds
+  • Easy upstream updates
+```
+
 ## Solution
 
 ```yaml
