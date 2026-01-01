@@ -1286,6 +1286,51 @@ patches:
     });
   });
 
+  describe("Watch Command", () => {
+    test("watch command starts and produces initial build output", async () => {
+      const baseDir = join(testDir, "watch-test");
+      await mkdir(baseDir, { recursive: true });
+
+      await writeFile(join(baseDir, "doc.md"), "# Doc\n\nContent.\n");
+      await writeFile(
+        join(baseDir, "kustomark.yaml"),
+        `apiVersion: kustomark/v1
+kind: Kustomization
+output: ./output
+resources:
+  - "*.md"
+`
+      );
+
+      // Start watch command
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "watch", baseDir, "--format=json"],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      // Wait for initial build output (give it 2 seconds)
+      const timeout = setTimeout(() => {
+        proc.kill();
+      }, 2000);
+
+      const stdout = await new Response(proc.stdout).text();
+      clearTimeout(timeout);
+
+      // Should have produced at least one JSON event
+      const lines = stdout.trim().split("\n").filter(Boolean);
+      expect(lines.length).toBeGreaterThan(0);
+
+      // Parse first event
+      const firstEvent = JSON.parse(lines[0]);
+      expect(firstEvent.event).toBeDefined();
+      expect(firstEvent.timestamp).toBeDefined();
+    });
+  });
+
   describe("Error Handling", () => {
     test("handles missing config file gracefully", async () => {
       const { loadConfigFile } = await import("../src/core/config.js");

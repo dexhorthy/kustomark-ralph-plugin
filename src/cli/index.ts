@@ -67,6 +67,8 @@ interface CliOptions {
   strict: boolean;
   // Explain command options
   file?: string;
+  // Watch command options
+  debounce: number;
 }
 
 // Parse command line arguments
@@ -81,6 +83,7 @@ function parseArgs(args: string[]): {
     verbose: 0,
     quiet: false,
     strict: false,
+    debounce: 300,
   };
 
   let command: string | null = null;
@@ -124,6 +127,10 @@ function parseArgs(args: string[]): {
       options.file = arg.slice("--file=".length);
     } else if (arg === "--file" && i + 1 < args.length) {
       options.file = args[++i];
+    } else if (arg.startsWith("--debounce=")) {
+      options.debounce = parseInt(arg.slice("--debounce=".length), 10) || 300;
+    } else if (arg === "--debounce" && i + 1 < args.length) {
+      options.debounce = parseInt(args[++i], 10) || 300;
     } else if (!arg.startsWith("-")) {
       positionalArgs.push(arg);
     }
@@ -735,6 +742,122 @@ async function explain(
   }
 }
 
+// Watch event result
+interface WatchEvent {
+  event: "build" | "error" | "start";
+  success?: boolean;
+  filesWritten?: number;
+  patchesApplied?: number;
+  error?: string;
+  timestamp: string;
+}
+
+// Watch command implementation
+async function watch(
+  configPath: string,
+  options: CliOptions
+): Promise<void> {
+  const fs = await import("fs");
+  const configDir = dirname(configPath);
+
+  // Emit event
+  function emit(event: WatchEvent): void {
+    if (options.format === "json") {
+      console.log(JSON.stringify(event));
+    } else {
+      const time = new Date().toLocaleTimeString();
+      if (event.event === "start") {
+        console.error(`[${time}] Watching for changes...`);
+      } else if (event.event === "build") {
+        if (event.success) {
+          console.error(
+            `[${time}] Build complete: ${event.filesWritten} files, ${event.patchesApplied} patches`
+          );
+        } else {
+          console.error(`[${time}] Build failed: ${event.error}`);
+        }
+      } else if (event.event === "error") {
+        console.error(`[${time}] Error: ${event.error}`);
+      }
+    }
+  }
+
+  // Run a build
+  async function runBuild(): Promise<void> {
+    try {
+      const result = await build(configPath, { ...options, format: "text", quiet: true });
+      emit({
+        event: "build",
+        success: result.success,
+        filesWritten: result.filesWritten,
+        patchesApplied: result.patchesApplied,
+        error: result.warnings.length > 0 ? result.warnings[0] : undefined,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      emit({
+        event: "build",
+        success: false,
+        error: errorMsg,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+
+  // Debounced build
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function debouncedBuild(): void {
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+    }
+    debounceTimer = setTimeout(() => {
+      runBuild();
+    }, options.debounce);
+  }
+
+  // Emit start event
+  emit({
+    event: "start",
+    timestamp: new Date().toISOString(),
+  });
+
+  // Initial build
+  await runBuild();
+
+  // Watch for changes
+  const watcher = fs.watch(configDir, { recursive: true }, (eventType, filename) => {
+    // Ignore output directory changes and hidden files
+    if (!filename || filename.startsWith(".") || filename.includes("node_modules")) {
+      return;
+    }
+
+    // Only watch relevant files
+    if (
+      filename.endsWith(".md") ||
+      filename.endsWith(".yaml") ||
+      filename.endsWith(".yml")
+    ) {
+      debouncedBuild();
+    }
+  });
+
+  // Handle cleanup on SIGINT
+  process.on("SIGINT", () => {
+    watcher.close();
+    if (options.format !== "json") {
+      console.error("\nStopped watching.");
+    }
+    process.exit(0);
+  });
+
+  // Keep the process running
+  await new Promise(() => {
+    // Never resolves - runs until SIGINT
+  });
+}
+
 // Print usage information
 function printUsage(): void {
   console.log(`
@@ -751,6 +874,7 @@ Commands:
   schema           Export JSON Schema for editor integration
   lint [path]      Check for common issues
   explain [path]   Show resolution chain and patch details
+  watch [path]     Rebuild on file changes
 
 Options:
   --format=<text|json>  Output format (default: text)
@@ -761,6 +885,7 @@ Options:
   --output=<path>       Output directory (init only)
   --strict              Treat warnings as errors (lint only)
   --file=<path>         Show lineage for specific file (explain only)
+  --debounce=<ms>       Debounce delay in milliseconds (watch only, default: 300)
 
 Examples:
   kustomark build ./my-project
@@ -770,6 +895,7 @@ Examples:
   kustomark schema > kustomark.schema.json
   kustomark lint ./my-project --strict
   kustomark explain ./team --file skills/commit.md
+  kustomark watch ./team --debounce 500
 `);
 }
 
@@ -869,6 +995,12 @@ async function main(): Promise<void> {
           console.log(JSON.stringify(result, null, 2));
         }
         exitCode = 0;
+        break;
+      }
+
+      case "watch": {
+        await watch(configPath, options);
+        // watch never returns (runs until SIGINT)
         break;
       }
 

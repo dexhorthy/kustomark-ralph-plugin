@@ -61,7 +61,7 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - [x] File operations (copy-file, rename-file, delete-file, move-file)
 
 ### Phase 7: Developer Experience (M4)
-- [ ] Watch mode
+- [x] Watch mode
 - [x] Explain command
 - [x] Lint command
 - [x] Init command
@@ -84,3 +84,4 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - M4 Schema command implemented: exports JSON Schema for editor integration using zod-to-json-schema (173 tests passing)
 - M4 Lint command implemented: checks for unreachable/redundant/overlapping patches, --strict flag (190 tests passing)
 - M4 Explain command implemented: shows resolution chain, file lineage with --file flag (199 tests passing)
+- M4 Watch mode implemented: rebuilds on file changes, --debounce flag, JSON event output (200 tests passing)
