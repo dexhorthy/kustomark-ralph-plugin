@@ -962,4 +962,121 @@ Content`;
       expect(result.applied).toBe(0);
     });
   });
+
+  describe("per-patch validation", () => {
+    test("warns when notContains validation fails", () => {
+      const content = `# Title
+
+Contains rpi/ path here`;
+      const patches: Patch[] = [{
+        op: "replace",
+        old: "old",
+        new: "new",
+        validate: {
+          notContains: "rpi/"
+        }
+      }];
+
+      // Patch doesn't match, so validation isn't run
+      const result = applyPatches(content, patches, "test.md");
+      expect(result.applied).toBe(0);
+    });
+
+    test("warns when notContains validation fails after patch", () => {
+      const content = `# Title
+
+Contains old/ path here`;
+      const patches: Patch[] = [{
+        op: "replace",
+        old: "old/",
+        new: "rpi/",
+        validate: {
+          notContains: "rpi/"
+        }
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.applied).toBe(1);
+      expect(result.warnings.length).toBeGreaterThan(0);
+      expect(result.warnings[0]).toContain("rpi/");
+    });
+
+    test("passes when notContains validation succeeds", () => {
+      const content = `# Title
+
+Contains rpi/ path here`;
+      const patches: Patch[] = [{
+        op: "replace",
+        old: "rpi/",
+        new: "thoughts/",
+        validate: {
+          notContains: "rpi/"
+        }
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.applied).toBe(1);
+      expect(result.warnings.length).toBe(0);
+    });
+
+    test("warns when contains validation fails", () => {
+      const content = `# Title
+
+Some content`;
+      const patches: Patch[] = [{
+        op: "replace",
+        old: "content",
+        new: "text",
+        validate: {
+          contains: "required-string"
+        }
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.applied).toBe(1);
+      expect(result.warnings.length).toBeGreaterThan(0);
+      expect(result.warnings[0]).toContain("required-string");
+    });
+
+    test("warns when matches validation fails", () => {
+      const content = `# Title
+
+version: abc`;
+      const patches: Patch[] = [{
+        op: "replace",
+        old: "abc",
+        new: "xyz",
+        validate: {
+          matches: "^version: \\d+\\.\\d+\\.\\d+$"
+        }
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.applied).toBe(1);
+      expect(result.warnings.length).toBeGreaterThan(0);
+    });
+
+    test("warns when notMatches validation fails", () => {
+      const content = `# Title
+
+version: 1.0.0`;
+      const patches: Patch[] = [{
+        op: "replace",
+        old: "Title",
+        new: "Header",
+        validate: {
+          notMatches: "version: \\d+"
+        }
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.applied).toBe(1);
+      expect(result.warnings.length).toBeGreaterThan(0);
+    });
+  });
 });

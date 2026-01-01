@@ -7,6 +7,7 @@ import * as Diff from "diff";
 import { loadConfigFile } from "../core/config.js";
 import { resolveResources } from "../core/resources.js";
 import { applyPatches } from "../core/patches.js";
+import { runGlobalValidators, type ValidationError } from "../core/validation.js";
 
 // Types for CLI output
 interface BuildResult {
@@ -31,6 +32,7 @@ interface ValidateResult {
   valid: boolean;
   errors: string[];
   warnings: string[];
+  validationErrors?: ValidationError[];
 }
 
 // CLI options
@@ -432,6 +434,48 @@ async function validate(
             result.valid = false;
           }
         }
+      }
+    }
+
+    // Run global validators if present
+    if (config.validators && config.validators.length > 0) {
+      logger.verbose(`Running ${config.validators.length} global validators...`, 1);
+
+      try {
+        const resources = await resolveResources(configPath, config.resources);
+        const patches = config.patches || [];
+
+        // Apply patches and collect patched content
+        const patchedFiles: Array<{ path: string; content: string }> = [];
+        for (const resource of resources) {
+          const patchResult = applyPatches(resource.content, patches, resource.relativePath);
+          patchedFiles.push({
+            path: resource.relativePath,
+            content: patchResult.content,
+          });
+        }
+
+        // Run validators
+        const validationErrors = patchedFiles.flatMap((file) =>
+          runGlobalValidators(file.content, file.path, config.validators!)
+        );
+
+        if (validationErrors.length > 0) {
+          result.valid = false;
+          result.validationErrors = validationErrors;
+
+          for (const error of validationErrors) {
+            const errorMsg = `Validator '${error.validator}' failed on ${error.file}: ${error.message}`;
+            result.errors.push(errorMsg);
+            logger.error(errorMsg);
+          }
+        } else {
+          logger.verbose("All validators passed", 2);
+        }
+      } catch (validationError) {
+        const errorMsg =
+          validationError instanceof Error ? validationError.message : String(validationError);
+        result.warnings.push(`Could not run validators: ${errorMsg}`);
       }
     }
 

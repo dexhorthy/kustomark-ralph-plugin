@@ -1142,6 +1142,56 @@ function applySinglePatch(
 }
 
 /**
+ * Run per-patch validation on content.
+ * Returns an error message if validation fails, null if it passes.
+ */
+function runPatchValidation(
+  content: string,
+  validation: {
+    notContains?: string;
+    contains?: string;
+    matches?: string;
+    notMatches?: string;
+  } | undefined
+): string | null {
+  if (!validation) {
+    return null;
+  }
+
+  // notContains check
+  if (validation.notContains !== undefined) {
+    if (content.includes(validation.notContains)) {
+      return `Contains '${validation.notContains}'`;
+    }
+  }
+
+  // contains check
+  if (validation.contains !== undefined) {
+    if (!content.includes(validation.contains)) {
+      return `Does not contain '${validation.contains}'`;
+    }
+  }
+
+  // matches check (regex)
+  if (validation.matches !== undefined) {
+    const regex = new RegExp(validation.matches);
+    if (!regex.test(content)) {
+      return `Does not match pattern '${validation.matches}'`;
+    }
+  }
+
+  // notMatches check (regex)
+  if (validation.notMatches !== undefined) {
+    const regex = new RegExp(validation.notMatches);
+    if (regex.test(content)) {
+      return `Matches forbidden pattern '${validation.notMatches}'`;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Apply an array of patches to markdown content.
  *
  * @param content - The markdown content to patch
@@ -1168,6 +1218,14 @@ export function applyPatches(
     currentContent = result.content;
     if (result.applied) {
       applied++;
+
+      // Run per-patch validation if specified
+      if (patch.validate) {
+        const validationError = runPatchValidation(currentContent, patch.validate);
+        if (validationError) {
+          warnings.push(`Validation failed for patch '${patch.op}' on ${filePath}: ${validationError}`);
+        }
+      }
     }
   }
 

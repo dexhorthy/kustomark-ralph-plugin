@@ -5,10 +5,29 @@ import { readFile } from "fs/promises";
 // Common fields for all patch operations
 const onNoMatchSchema = z.enum(["skip", "warn", "error"]).default("warn");
 
+// Per-patch validation schema (M2)
+const patchValidationSchema = z.object({
+  notContains: z.string().optional(),
+  contains: z.string().optional(),
+  matches: z.string().optional(),
+  notMatches: z.string().optional(),
+}).optional();
+
 const patchBaseSchema = z.object({
   include: z.array(z.string()).optional(),
   exclude: z.array(z.string()).optional(),
   onNoMatch: onNoMatchSchema.optional(),
+  validate: patchValidationSchema,
+});
+
+// Global validator schema (M2)
+const validatorSchema = z.object({
+  name: z.string(),
+  notContains: z.string().optional(),
+  contains: z.string().optional(),
+  matches: z.string().optional(),
+  notMatches: z.string().optional(),
+  frontmatterRequired: z.array(z.string()).optional(),
 });
 
 // Replace operation schema
@@ -179,6 +198,7 @@ const kustomarkConfigSchema = z.object({
   resources: z.array(z.string()),
   patches: z.array(patchSchema).optional(),
   onNoMatch: onNoMatchSchema.optional(),
+  validators: z.array(validatorSchema).optional(),
 });
 
 // Export TypeScript types derived from schemas
@@ -201,6 +221,8 @@ export type ReplaceBetweenPatch = z.infer<typeof replaceBetweenPatchSchema>;
 export type RenameHeaderPatch = z.infer<typeof renameHeaderPatchSchema>;
 export type MoveSectionPatch = z.infer<typeof moveSectionPatchSchema>;
 export type ChangeSectionLevelPatch = z.infer<typeof changeSectionLevelPatchSchema>;
+export type PatchValidation = z.infer<typeof patchValidationSchema>;
+export type Validator = z.infer<typeof validatorSchema>;
 export type Patch = z.infer<typeof patchSchema>;
 export type KustomarkConfig = z.infer<typeof kustomarkConfigSchema>;
 
@@ -208,6 +230,8 @@ export type KustomarkConfig = z.infer<typeof kustomarkConfigSchema>;
 export {
   onNoMatchSchema,
   patchBaseSchema,
+  patchValidationSchema,
+  validatorSchema,
   replacePatchSchema,
   replaceRegexPatchSchema,
   removeSectionPatchSchema,

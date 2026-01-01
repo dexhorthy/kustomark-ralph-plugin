@@ -45,12 +45,12 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 
 ## Next Milestones
 
-### Phase 5: Enhanced Operations (M2)
+### Phase 5: Enhanced Operations (M2) (COMPLETE)
 - [x] Frontmatter operations (set-frontmatter, remove-frontmatter, rename-frontmatter, merge-frontmatter)
 - [x] Line operations (insert-after-line, insert-before-line, replace-line, delete-between, replace-between)
 - [x] Additional section operations (rename-header, move-section, change-section-level)
-- [ ] Per-patch validation
-- [ ] Global validators
+- [x] Per-patch validation
+- [x] Global validators
 
 ### Phase 6: Remote Sources (M3)
 - [ ] Git remote resources
@@ -75,3 +75,4 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - M2 Frontmatter operations implemented: set-frontmatter, remove-frontmatter, rename-frontmatter, merge-frontmatter (50 tests passing)
 - M2 Line operations implemented: insert-after-line, insert-before-line, replace-line, delete-between, replace-between (64 tests passing)
 - M2 Section operations implemented: rename-header, move-section, change-section-level (76 tests passing)
+- M2 Validation implemented: per-patch validation and global validators (95 tests passing) - M2 COMPLETE!
