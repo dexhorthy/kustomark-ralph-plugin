@@ -9,6 +9,7 @@ import { resolveResources } from "../core/resources.js";
 import { applyPatches } from "../core/patches.js";
 import { runGlobalValidators, type ValidationError } from "../core/validation.js";
 import { applyFileOperations, applyFileOperationResults } from "../core/file-operations.js";
+import { lintConfig, type LintResult } from "../core/lint.js";
 
 // Types for CLI output
 interface BuildResult {
@@ -56,6 +57,8 @@ interface CliOptions {
   // Init command options
   base?: string;
   output?: string;
+  // Lint command options
+  strict: boolean;
 }
 
 // Parse command line arguments
@@ -69,6 +72,7 @@ function parseArgs(args: string[]): {
     clean: false,
     verbose: 0,
     quiet: false,
+    strict: false,
   };
 
   let command: string | null = null;
@@ -106,6 +110,8 @@ function parseArgs(args: string[]): {
       options.output = arg.slice("--output=".length);
     } else if (arg === "--output" && i + 1 < args.length) {
       options.output = args[++i];
+    } else if (arg === "--strict") {
+      options.strict = true;
     } else if (!arg.startsWith("-")) {
       positionalArgs.push(arg);
     }
@@ -610,6 +616,63 @@ function schema(): SchemaResult {
   return { schema: jsonSchema };
 }
 
+// Lint command implementation
+async function lint(
+  configPath: string,
+  options: CliOptions
+): Promise<LintResult> {
+  const logger = createLogger(options);
+
+  try {
+    logger.verbose(`Loading config from ${configPath}`, 1);
+    const config = await loadConfigFile(configPath);
+
+    logger.verbose(`Resolving resources...`, 1);
+    let resources: Array<{ relativePath: string; content: string }> = [];
+    try {
+      resources = await resolveResources(configPath, config.resources);
+      logger.verbose(`Found ${resources.length} resources`, 2);
+    } catch {
+      logger.verbose(`Could not resolve resources, linting without file context`, 1);
+    }
+
+    logger.verbose(`Running lint checks...`, 1);
+    const result = lintConfig(config, resources);
+
+    // Print issues in text format
+    if (options.format === "text") {
+      for (const issue of result.issues) {
+        const prefix =
+          issue.level === "error"
+            ? "ERROR"
+            : issue.level === "warning"
+              ? "WARN"
+              : "INFO";
+        logger.info(`${prefix}: ${issue.message}`);
+      }
+
+      if (result.issues.length === 0) {
+        logger.info("No issues found");
+      } else {
+        logger.info(
+          `Found ${result.errorCount} errors, ${result.warningCount} warnings, ${result.infoCount} info`
+        );
+      }
+    }
+
+    return result;
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    logger.error(errorMsg);
+    return {
+      issues: [{ level: "error", message: errorMsg }],
+      errorCount: 1,
+      warningCount: 0,
+      infoCount: 0,
+    };
+  }
+}
+
 // Print usage information
 function printUsage(): void {
   console.log(`
@@ -624,6 +687,7 @@ Commands:
   validate [path]  Validate config
   init [path]      Create a new kustomark.yaml
   schema           Export JSON Schema for editor integration
+  lint [path]      Check for common issues
 
 Options:
   --format=<text|json>  Output format (default: text)
@@ -632,6 +696,7 @@ Options:
   -q                    Quiet mode (errors only)
   --base=<path>         Base config to extend (init only)
   --output=<path>       Output directory (init only)
+  --strict              Treat warnings as errors (lint only)
 
 Examples:
   kustomark build ./my-project
@@ -639,6 +704,7 @@ Examples:
   kustomark validate ./my-project -v
   kustomark init ./overlays/team --base ../company
   kustomark schema > kustomark.schema.json
+  kustomark lint ./my-project --strict
 `);
 }
 
@@ -715,6 +781,20 @@ async function main(): Promise<void> {
           console.log(JSON.stringify(result, null, 2));
         }
         exitCode = result.valid ? 0 : 1;
+        break;
+      }
+
+      case "lint": {
+        const result = await lint(configPath, options);
+        if (options.format === "json") {
+          console.log(JSON.stringify(result, null, 2));
+        }
+        // With --strict, warnings count as failures
+        if (options.strict) {
+          exitCode = result.errorCount > 0 || result.warningCount > 0 ? 1 : 0;
+        } else {
+          exitCode = result.errorCount > 0 ? 1 : 0;
+        }
         break;
       }
 

@@ -63,7 +63,7 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 ### Phase 7: Developer Experience (M4)
 - [ ] Watch mode
 - [ ] Explain command
-- [ ] Lint command
+- [x] Lint command
 - [x] Init command
 - [x] Schema command
 - [ ] Build stats
@@ -82,3 +82,4 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - M3 Lock file support implemented: schema, read/write, integrity verification with SHA256 (163 tests passing) - M3 COMPLETE!
 - M4 Init command implemented: scaffolds kustomark.yaml with --base and --output flags, JSON output (170 tests passing)
 - M4 Schema command implemented: exports JSON Schema for editor integration using zod-to-json-schema (173 tests passing)
+- M4 Lint command implemented: checks for unreachable/redundant/overlapping patches, --strict flag (190 tests passing)

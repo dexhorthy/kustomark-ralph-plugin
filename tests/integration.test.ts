@@ -1021,6 +1021,154 @@ resources:
     });
   });
 
+  describe("Lint Command", () => {
+    test("lints valid config with no issues", async () => {
+      const baseDir = join(testDir, "lint-clean");
+      await mkdir(baseDir, { recursive: true });
+
+      await writeFile(join(baseDir, "doc.md"), "# Doc\n\nContent.\n");
+      await writeFile(
+        join(baseDir, "kustomark.yaml"),
+        `apiVersion: kustomark/v1
+kind: Kustomization
+output: ./output
+resources:
+  - "*.md"
+patches:
+  - op: replace
+    old: foo
+    new: bar
+`
+      );
+
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "lint", baseDir],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      const exitCode = await proc.exited;
+      expect(exitCode).toBe(0);
+    });
+
+    test("detects redundant patches", async () => {
+      const baseDir = join(testDir, "lint-redundant");
+      await mkdir(baseDir, { recursive: true });
+
+      await writeFile(join(baseDir, "doc.md"), "# Doc\n\nContent.\n");
+      await writeFile(
+        join(baseDir, "kustomark.yaml"),
+        `apiVersion: kustomark/v1
+kind: Kustomization
+output: ./output
+resources:
+  - "*.md"
+patches:
+  - op: replace
+    old: foo
+    new: bar
+  - op: replace
+    old: foo
+    new: bar
+`
+      );
+
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "lint", baseDir, "--format=json"],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      const exitCode = await proc.exited;
+      const stdout = await new Response(proc.stdout).text();
+      const result = JSON.parse(stdout);
+
+      expect(result.warningCount).toBeGreaterThan(0);
+      expect(result.issues.some((i: { message: string }) => i.message.includes("redundant"))).toBe(true);
+      // Warnings don't fail without --strict
+      expect(exitCode).toBe(0);
+    });
+
+    test("fails with --strict when warnings exist", async () => {
+      const baseDir = join(testDir, "lint-strict");
+      await mkdir(baseDir, { recursive: true });
+
+      await writeFile(join(baseDir, "doc.md"), "# Doc\n\nContent.\n");
+      await writeFile(
+        join(baseDir, "kustomark.yaml"),
+        `apiVersion: kustomark/v1
+kind: Kustomization
+output: ./output
+resources:
+  - "*.md"
+patches:
+  - op: replace
+    old: foo
+    new: bar
+  - op: replace
+    old: foo
+    new: bar
+`
+      );
+
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "lint", baseDir, "--strict"],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      const exitCode = await proc.exited;
+      expect(exitCode).toBe(1);
+    });
+
+    test("detects unreachable patches", async () => {
+      const baseDir = join(testDir, "lint-unreachable");
+      await mkdir(baseDir, { recursive: true });
+
+      await writeFile(join(baseDir, "doc.md"), "# Doc\n\nContent.\n");
+      await writeFile(
+        join(baseDir, "kustomark.yaml"),
+        `apiVersion: kustomark/v1
+kind: Kustomization
+output: ./output
+resources:
+  - "*.md"
+patches:
+  - op: replace
+    old: foo
+    new: bar
+    include:
+      - "nonexistent/*.md"
+`
+      );
+
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "lint", baseDir, "--format=json"],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      await proc.exited;
+      const stdout = await new Response(proc.stdout).text();
+      const result = JSON.parse(stdout);
+
+      expect(result.warningCount).toBeGreaterThan(0);
+      expect(result.issues.some((i: { message: string }) => i.message.includes("matches 0 files"))).toBe(true);
+    });
+  });
+
   describe("Error Handling", () => {
     test("handles missing config file gracefully", async () => {
       const { loadConfigFile } = await import("../src/core/config.js");
