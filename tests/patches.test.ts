@@ -719,4 +719,247 @@ Content`;
       expect(result.applied).toBe(0);
     });
   });
+
+  describe("rename-header", () => {
+    test("renames section header by id", () => {
+      const content = `# Title
+
+## Old Section Name
+
+Content here
+
+## Another Section`;
+      const patches: Patch[] = [{
+        op: "rename-header",
+        id: "old-section-name",
+        new: "New Section Name"
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).toContain("## New Section Name");
+      expect(result.content).not.toContain("## Old Section Name");
+      expect(result.applied).toBe(1);
+    });
+
+    test("preserves header level when renaming", () => {
+      const content = `# Title
+
+### Deep Header
+
+Content`;
+      const patches: Patch[] = [{
+        op: "rename-header",
+        id: "deep-header",
+        new: "Renamed Deep Header"
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).toContain("### Renamed Deep Header");
+    });
+
+    test("warns when section not found", () => {
+      const content = `# Title
+
+## Section`;
+      const patches: Patch[] = [{
+        op: "rename-header",
+        id: "nonexistent",
+        new: "New Name"
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.warnings.length).toBeGreaterThan(0);
+      expect(result.applied).toBe(0);
+    });
+  });
+
+  describe("move-section", () => {
+    test("moves section after another section", () => {
+      const content = `# Title
+
+## First
+
+First content
+
+## Second
+
+Second content
+
+## Third
+
+Third content`;
+      const patches: Patch[] = [{
+        op: "move-section",
+        id: "first",
+        after: "second"
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      const secondIndex = result.content.indexOf("## Second");
+      const firstIndex = result.content.indexOf("## First");
+      expect(secondIndex).toBeLessThan(firstIndex);
+      expect(result.applied).toBe(1);
+    });
+
+    test("moves section before another section", () => {
+      const content = `# Title
+
+## First
+
+First content
+
+## Second
+
+Second content
+
+## Third
+
+Third content`;
+      const patches: Patch[] = [{
+        op: "move-section",
+        id: "third",
+        before: "first"
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      const thirdIndex = result.content.indexOf("## Third");
+      const firstIndex = result.content.indexOf("## First");
+      expect(thirdIndex).toBeLessThan(firstIndex);
+    });
+
+    test("warns when source section not found", () => {
+      const content = `# Title
+
+## Section`;
+      const patches: Patch[] = [{
+        op: "move-section",
+        id: "nonexistent",
+        after: "section"
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.warnings.length).toBeGreaterThan(0);
+      expect(result.applied).toBe(0);
+    });
+
+    test("warns when target section not found", () => {
+      const content = `# Title
+
+## Section`;
+      const patches: Patch[] = [{
+        op: "move-section",
+        id: "section",
+        after: "nonexistent"
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.warnings.length).toBeGreaterThan(0);
+      expect(result.applied).toBe(0);
+    });
+  });
+
+  describe("change-section-level", () => {
+    test("promotes section level with negative delta", () => {
+      const content = `# Title
+
+### Subsection
+
+Content`;
+      const patches: Patch[] = [{
+        op: "change-section-level",
+        id: "subsection",
+        delta: -1
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).toContain("## Subsection");
+      expect(result.content).not.toContain("### Subsection");
+      expect(result.applied).toBe(1);
+    });
+
+    test("demotes section level with positive delta", () => {
+      const content = `# Title
+
+## Section
+
+Content`;
+      const patches: Patch[] = [{
+        op: "change-section-level",
+        id: "section",
+        delta: 1
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).toContain("### Section");
+      // Use regex to ensure exactly ### (not ##)
+      expect(result.content).toMatch(/^### Section$/m);
+    });
+
+    test("changes level of section and its children", () => {
+      const content = `# Title
+
+## Parent
+
+Parent content
+
+### Child
+
+Child content
+
+## Other`;
+      const patches: Patch[] = [{
+        op: "change-section-level",
+        id: "parent",
+        delta: 1
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).toContain("### Parent");
+      expect(result.content).toContain("#### Child");
+    });
+
+    test("clamps level to valid range", () => {
+      const content = `# Title
+
+###### Deep
+
+Content`;
+      const patches: Patch[] = [{
+        op: "change-section-level",
+        id: "deep",
+        delta: 5
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      // Should still be ###### (max level 6)
+      expect(result.content).toContain("###### Deep");
+    });
+
+    test("warns when section not found", () => {
+      const content = `# Title
+
+## Section`;
+      const patches: Patch[] = [{
+        op: "change-section-level",
+        id: "nonexistent",
+        delta: 1
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.warnings.length).toBeGreaterThan(0);
+      expect(result.applied).toBe(0);
+    });
+  });
 });

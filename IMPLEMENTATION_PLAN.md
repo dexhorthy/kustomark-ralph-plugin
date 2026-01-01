@@ -48,7 +48,7 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 ### Phase 5: Enhanced Operations (M2)
 - [x] Frontmatter operations (set-frontmatter, remove-frontmatter, rename-frontmatter, merge-frontmatter)
 - [x] Line operations (insert-after-line, insert-before-line, replace-line, delete-between, replace-between)
-- [ ] Additional section operations (rename-header, move-section, change-section-level)
+- [x] Additional section operations (rename-header, move-section, change-section-level)
 - [ ] Per-patch validation
 - [ ] Global validators
 
@@ -74,3 +74,4 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - M1 MVP fully implemented with all patch operations, CLI commands, and tests
 - M2 Frontmatter operations implemented: set-frontmatter, remove-frontmatter, rename-frontmatter, merge-frontmatter (50 tests passing)
 - M2 Line operations implemented: insert-after-line, insert-before-line, replace-line, delete-between, replace-between (64 tests passing)
+- M2 Section operations implemented: rename-header, move-section, change-section-level (76 tests passing)

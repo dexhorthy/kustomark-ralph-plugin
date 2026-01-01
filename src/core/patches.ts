@@ -18,6 +18,9 @@ import type {
   ReplaceLinePatch,
   DeleteBetweenPatch,
   ReplaceBetweenPatch,
+  RenameHeaderPatch,
+  MoveSectionPatch,
+  ChangeSectionLevelPatch,
   OnNoMatch,
 } from "./config.js";
 
@@ -922,6 +925,169 @@ function applyReplaceBetween(
 }
 
 /**
+ * Apply a rename-header patch.
+ */
+function applyRenameHeader(
+  content: string,
+  patch: RenameHeaderPatch,
+  warnings: string[],
+  filePath: string
+): { content: string; applied: boolean } {
+  const { id, new: newTitle, onNoMatch } = patch;
+
+  const sections = parseSections(content);
+  const section = findSectionById(sections, id);
+
+  if (!section) {
+    handleNoMatch(
+      onNoMatch,
+      `Patch 'rename-header' did not match: section "${id}" not found in ${filePath}`,
+      warnings
+    );
+    return { content, applied: false };
+  }
+
+  const lines = content.split("\n");
+  const headerLine = lines[section.headerLine];
+
+  // Preserve the header level (number of #)
+  const levelMatch = headerLine.match(/^(#{1,6})\s+/);
+  if (!levelMatch) {
+    return { content, applied: false };
+  }
+
+  const level = levelMatch[1];
+  lines[section.headerLine] = `${level} ${newTitle}`;
+
+  return { content: lines.join("\n"), applied: true };
+}
+
+/**
+ * Apply a move-section patch.
+ */
+function applyMoveSection(
+  content: string,
+  patch: MoveSectionPatch,
+  warnings: string[],
+  filePath: string
+): { content: string; applied: boolean } {
+  const { id, after, before, onNoMatch } = patch;
+
+  const sections = parseSections(content);
+  const section = findSectionById(sections, id);
+
+  if (!section) {
+    handleNoMatch(
+      onNoMatch,
+      `Patch 'move-section' did not match: section "${id}" not found in ${filePath}`,
+      warnings
+    );
+    return { content, applied: false };
+  }
+
+  // Find target section
+  const targetId = after || before;
+  if (!targetId) {
+    handleNoMatch(
+      onNoMatch,
+      `Patch 'move-section' requires either 'after' or 'before' to be specified`,
+      warnings
+    );
+    return { content, applied: false };
+  }
+
+  const targetSection = findSectionById(sections, targetId);
+  if (!targetSection) {
+    handleNoMatch(
+      onNoMatch,
+      `Patch 'move-section' did not match: target section "${targetId}" not found in ${filePath}`,
+      warnings
+    );
+    return { content, applied: false };
+  }
+
+  const lines = content.split("\n");
+
+  // Extract the section content (including header and children)
+  const sectionLines = lines.slice(section.startLine, section.endLine + 1);
+
+  // Remove the section from its original position
+  const withoutSection = [
+    ...lines.slice(0, section.startLine),
+    ...lines.slice(section.endLine + 1),
+  ];
+
+  // Recalculate target position after removal
+  let targetLine: number;
+  if (section.startLine < targetSection.startLine) {
+    // Section was before target, adjust for removal
+    const removedLines = section.endLine - section.startLine + 1;
+    if (after) {
+      targetLine = targetSection.endLine - removedLines + 1;
+    } else {
+      targetLine = targetSection.startLine - removedLines;
+    }
+  } else {
+    // Section was after target, no adjustment needed
+    if (after) {
+      targetLine = targetSection.endLine + 1;
+    } else {
+      targetLine = targetSection.startLine;
+    }
+  }
+
+  // Insert section at new position
+  const result = [
+    ...withoutSection.slice(0, targetLine),
+    ...sectionLines,
+    ...withoutSection.slice(targetLine),
+  ];
+
+  return { content: result.join("\n"), applied: true };
+}
+
+/**
+ * Apply a change-section-level patch.
+ */
+function applyChangeSectionLevel(
+  content: string,
+  patch: ChangeSectionLevelPatch,
+  warnings: string[],
+  filePath: string
+): { content: string; applied: boolean } {
+  const { id, delta, onNoMatch } = patch;
+
+  const sections = parseSections(content);
+  const section = findSectionById(sections, id);
+
+  if (!section) {
+    handleNoMatch(
+      onNoMatch,
+      `Patch 'change-section-level' did not match: section "${id}" not found in ${filePath}`,
+      warnings
+    );
+    return { content, applied: false };
+  }
+
+  const lines = content.split("\n");
+
+  // Change the level of this section and all its children
+  for (let i = section.startLine; i <= section.endLine; i++) {
+    const line = lines[i];
+    const headerMatch = line.match(/^(#{1,6})\s+(.+)$/);
+
+    if (headerMatch) {
+      const currentLevel = headerMatch[1].length;
+      const title = headerMatch[2];
+      const newLevel = Math.max(1, Math.min(6, currentLevel + delta));
+      lines[i] = "#".repeat(newLevel) + " " + title;
+    }
+  }
+
+  return { content: lines.join("\n"), applied: true };
+}
+
+/**
  * Apply a single patch to content.
  */
 function applySinglePatch(
@@ -961,6 +1127,12 @@ function applySinglePatch(
       return applyDeleteBetween(content, patch, warnings, filePath);
     case "replace-between":
       return applyReplaceBetween(content, patch, warnings, filePath);
+    case "rename-header":
+      return applyRenameHeader(content, patch, warnings, filePath);
+    case "move-section":
+      return applyMoveSection(content, patch, warnings, filePath);
+    case "change-section-level":
+      return applyChangeSectionLevel(content, patch, warnings, filePath);
     default: {
       // TypeScript exhaustiveness check
       const _exhaustive: never = patch;

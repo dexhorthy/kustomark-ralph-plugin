@@ -127,6 +127,28 @@ const replaceBetweenPatchSchema = patchBaseSchema.extend({
   inclusive: z.boolean().default(false),
 });
 
+// Rename-header operation schema (M2)
+const renameHeaderPatchSchema = patchBaseSchema.extend({
+  op: z.literal("rename-header"),
+  id: z.string(),
+  new: z.string(),
+});
+
+// Move-section operation schema (M2)
+const moveSectionPatchSchema = patchBaseSchema.extend({
+  op: z.literal("move-section"),
+  id: z.string(),
+  after: z.string().optional(),
+  before: z.string().optional(),
+});
+
+// Change-section-level operation schema (M2)
+const changeSectionLevelPatchSchema = patchBaseSchema.extend({
+  op: z.literal("change-section-level"),
+  id: z.string(),
+  delta: z.number(),
+});
+
 // Union of all patch operation schemas
 const patchSchema = z.discriminatedUnion("op", [
   replacePatchSchema,
@@ -144,6 +166,9 @@ const patchSchema = z.discriminatedUnion("op", [
   replaceLinePatchSchema,
   deleteBetweenPatchSchema,
   replaceBetweenPatchSchema,
+  renameHeaderPatchSchema,
+  moveSectionPatchSchema,
+  changeSectionLevelPatchSchema,
 ]);
 
 // Main kustomark configuration schema
@@ -173,6 +198,9 @@ export type InsertBeforeLinePatch = z.infer<typeof insertBeforeLinePatchSchema>;
 export type ReplaceLinePatch = z.infer<typeof replaceLinePatchSchema>;
 export type DeleteBetweenPatch = z.infer<typeof deleteBetweenPatchSchema>;
 export type ReplaceBetweenPatch = z.infer<typeof replaceBetweenPatchSchema>;
+export type RenameHeaderPatch = z.infer<typeof renameHeaderPatchSchema>;
+export type MoveSectionPatch = z.infer<typeof moveSectionPatchSchema>;
+export type ChangeSectionLevelPatch = z.infer<typeof changeSectionLevelPatchSchema>;
 export type Patch = z.infer<typeof patchSchema>;
 export type KustomarkConfig = z.infer<typeof kustomarkConfigSchema>;
 
@@ -195,6 +223,9 @@ export {
   replaceLinePatchSchema,
   deleteBetweenPatchSchema,
   replaceBetweenPatchSchema,
+  renameHeaderPatchSchema,
+  moveSectionPatchSchema,
+  changeSectionLevelPatchSchema,
   patchSchema,
   kustomarkConfigSchema,
 };
