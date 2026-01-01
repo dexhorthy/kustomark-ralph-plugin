@@ -1,0 +1,36 @@
+{
+  "name": "kustomark",
+  "version": "0.1.0",
+  "description": "Declarative markdown patching pipeline. Like kustomize, but for markdown.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "kustomark": "dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "bun build src/cli/index.ts --outdir dist/cli --target node && bun build src/index.ts --outdir dist --target node",
+    "check": "tsc --noEmit && eslint src/ tests/",
+    "test": "bun test",
+    "lint": "eslint src/ tests/",
+    "format": "prettier --write src/ tests/"
+  },
+  "dependencies": {
+    "diff": "^5.1.0",
+    "github-slugger": "^2.0.0",
+    "glob": "^10.3.10",
+    "minimatch": "^10.1.1",
+    "yaml": "^2.3.4",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@types/bun": "^1.0.0",
+    "@types/diff": "^5.0.9",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.5",
+    "typescript": "^5.3.3",
+    "typescript-eslint": "^8.51.0"
+  }
+}
