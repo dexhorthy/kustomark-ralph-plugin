@@ -428,4 +428,295 @@ metadata:
       expect(result.content).toContain("version: \"2.0\"");
     });
   });
+
+  describe("insert-after-line", () => {
+    test("inserts content after matching line", () => {
+      const content = `# Title
+
+## Steps
+
+Step 1
+Step 2`;
+      const patches: Patch[] = [{
+        op: "insert-after-line",
+        match: "## Steps",
+        content: "**Prerequisites**: Setup required."
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).toContain("**Prerequisites**: Setup required.");
+      const prereqIndex = result.content.indexOf("Prerequisites");
+      const step1Index = result.content.indexOf("Step 1");
+      expect(prereqIndex).toBeLessThan(step1Index);
+      expect(result.applied).toBe(1);
+    });
+
+    test("supports regex pattern", () => {
+      const content = `# Title
+
+## Output
+
+Content here`;
+      const patches: Patch[] = [{
+        op: "insert-after-line",
+        pattern: "^##\\s+Output",
+        content: "New line after output"
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).toContain("New line after output");
+      const newLineIndex = result.content.indexOf("New line after output");
+      const contentIndex = result.content.indexOf("Content here");
+      expect(newLineIndex).toBeLessThan(contentIndex);
+    });
+
+    test("warns when no match found", () => {
+      const content = `# Title
+
+Content`;
+      const patches: Patch[] = [{
+        op: "insert-after-line",
+        match: "## Nonexistent",
+        content: "New content"
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.warnings.length).toBeGreaterThan(0);
+      expect(result.applied).toBe(0);
+    });
+  });
+
+  describe("insert-before-line", () => {
+    test("inserts content before matching line", () => {
+      const content = `# Title
+
+## Output
+
+Output content`;
+      const patches: Patch[] = [{
+        op: "insert-before-line",
+        match: "## Output",
+        content: "## Validation\n\nCheck paths."
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).toContain("## Validation");
+      const validationIndex = result.content.indexOf("## Validation");
+      const outputIndex = result.content.indexOf("## Output");
+      expect(validationIndex).toBeLessThan(outputIndex);
+      expect(result.applied).toBe(1);
+    });
+
+    test("supports regex pattern with regex flag", () => {
+      const content = `# Title
+
+## Output
+
+Content`;
+      const patches: Patch[] = [{
+        op: "insert-before-line",
+        pattern: "^##\\s+Output",
+        regex: true,
+        content: "Inserted before"
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).toContain("Inserted before");
+    });
+  });
+
+  describe("replace-line", () => {
+    test("replaces matching line", () => {
+      const content = `# Title
+
+old description line
+
+More content`;
+      const patches: Patch[] = [{
+        op: "replace-line",
+        match: "old description line",
+        replacement: "new description line"
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).toContain("new description line");
+      expect(result.content).not.toContain("old description line");
+      expect(result.applied).toBe(1);
+    });
+
+    test("supports regex pattern", () => {
+      const content = `# Title
+
+version: 1.0.0
+
+Content`;
+      const patches: Patch[] = [{
+        op: "replace-line",
+        pattern: "^version: \\d+\\.\\d+\\.\\d+$",
+        replacement: "version: 2.0.0"
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).toContain("version: 2.0.0");
+      expect(result.content).not.toContain("version: 1.0.0");
+    });
+
+    test("warns when no match found", () => {
+      const content = `# Title
+
+Content`;
+      const patches: Patch[] = [{
+        op: "replace-line",
+        match: "nonexistent line",
+        replacement: "new line"
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.warnings.length).toBeGreaterThan(0);
+      expect(result.applied).toBe(0);
+    });
+  });
+
+  describe("delete-between", () => {
+    test("deletes content between markers inclusive", () => {
+      const content = `# Title
+
+<!-- BEGIN -->
+Content to delete
+More content
+<!-- END -->
+
+Keep this`;
+      const patches: Patch[] = [{
+        op: "delete-between",
+        start: "<!-- BEGIN -->",
+        end: "<!-- END -->",
+        inclusive: true
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).not.toContain("BEGIN");
+      expect(result.content).not.toContain("Content to delete");
+      expect(result.content).not.toContain("END");
+      expect(result.content).toContain("Keep this");
+      expect(result.applied).toBe(1);
+    });
+
+    test("deletes content between markers exclusive", () => {
+      const content = `# Title
+
+<!-- BEGIN -->
+Content to delete
+<!-- END -->
+
+Keep this`;
+      const patches: Patch[] = [{
+        op: "delete-between",
+        start: "<!-- BEGIN -->",
+        end: "<!-- END -->",
+        inclusive: false
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).toContain("BEGIN");
+      expect(result.content).toContain("END");
+      expect(result.content).not.toContain("Content to delete");
+      expect(result.content).toContain("Keep this");
+    });
+
+    test("warns when markers not found", () => {
+      const content = `# Title
+
+Content`;
+      const patches: Patch[] = [{
+        op: "delete-between",
+        start: "<!-- BEGIN -->",
+        end: "<!-- END -->",
+        inclusive: true
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.warnings.length).toBeGreaterThan(0);
+      expect(result.applied).toBe(0);
+    });
+  });
+
+  describe("replace-between", () => {
+    test("replaces content between markers exclusive", () => {
+      const content = `# Title
+
+<!-- CONFIG -->
+old config
+<!-- /CONFIG -->
+
+Content`;
+      const patches: Patch[] = [{
+        op: "replace-between",
+        start: "<!-- CONFIG -->",
+        end: "<!-- /CONFIG -->",
+        content: "new config",
+        inclusive: false
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).toContain("<!-- CONFIG -->");
+      expect(result.content).toContain("<!-- /CONFIG -->");
+      expect(result.content).toContain("new config");
+      expect(result.content).not.toContain("old config");
+      expect(result.applied).toBe(1);
+    });
+
+    test("replaces content between markers inclusive", () => {
+      const content = `# Title
+
+<!-- CONFIG -->
+old config
+<!-- /CONFIG -->
+
+Content`;
+      const patches: Patch[] = [{
+        op: "replace-between",
+        start: "<!-- CONFIG -->",
+        end: "<!-- /CONFIG -->",
+        content: "completely new content",
+        inclusive: true
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).not.toContain("<!-- CONFIG -->");
+      expect(result.content).not.toContain("<!-- /CONFIG -->");
+      expect(result.content).toContain("completely new content");
+    });
+
+    test("warns when markers not found", () => {
+      const content = `# Title
+
+Content`;
+      const patches: Patch[] = [{
+        op: "replace-between",
+        start: "<!-- START -->",
+        end: "<!-- END -->",
+        content: "new content",
+        inclusive: false
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.warnings.length).toBeGreaterThan(0);
+      expect(result.applied).toBe(0);
+    });
+  });
 });

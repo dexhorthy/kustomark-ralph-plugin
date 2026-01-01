@@ -13,6 +13,11 @@ import type {
   RemoveFrontmatterPatch,
   RenameFrontmatterPatch,
   MergeFrontmatterPatch,
+  InsertAfterLinePatch,
+  InsertBeforeLinePatch,
+  ReplaceLinePatch,
+  DeleteBetweenPatch,
+  ReplaceBetweenPatch,
   OnNoMatch,
 } from "./config.js";
 
@@ -677,6 +682,246 @@ function applyMergeFrontmatter(
 }
 
 /**
+ * Find the line number that matches the given pattern.
+ * Returns -1 if no match is found.
+ */
+function findMatchingLine(
+  lines: string[],
+  match: string | undefined,
+  pattern: string | undefined,
+  regex: boolean | undefined
+): number {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (pattern !== undefined) {
+      // Use pattern (always regex)
+      const re = new RegExp(pattern);
+      if (re.test(line)) {
+        return i;
+      }
+    } else if (match !== undefined) {
+      if (regex) {
+        // Treat match as regex
+        const re = new RegExp(match);
+        if (re.test(line)) {
+          return i;
+        }
+      } else {
+        // Exact match (line contains the string)
+        if (line.includes(match)) {
+          return i;
+        }
+      }
+    }
+  }
+
+  return -1;
+}
+
+/**
+ * Apply an insert-after-line patch.
+ */
+function applyInsertAfterLine(
+  content: string,
+  patch: InsertAfterLinePatch,
+  warnings: string[],
+  filePath: string
+): { content: string; applied: boolean } {
+  const { match, pattern, regex, content: insertContent, onNoMatch } = patch;
+
+  const lines = content.split("\n");
+  const lineIndex = findMatchingLine(lines, match, pattern, regex);
+
+  if (lineIndex === -1) {
+    handleNoMatch(
+      onNoMatch,
+      `Patch 'insert-after-line' did not match: pattern not found in ${filePath}`,
+      warnings
+    );
+    return { content, applied: false };
+  }
+
+  // Insert content after the matched line
+  const trimmedContent = insertContent.replace(/\n$/, "");
+  const before = lines.slice(0, lineIndex + 1);
+  const after = lines.slice(lineIndex + 1);
+
+  const result = [...before, trimmedContent, ...after].join("\n");
+
+  return { content: result, applied: true };
+}
+
+/**
+ * Apply an insert-before-line patch.
+ */
+function applyInsertBeforeLine(
+  content: string,
+  patch: InsertBeforeLinePatch,
+  warnings: string[],
+  filePath: string
+): { content: string; applied: boolean } {
+  const { match, pattern, regex, content: insertContent, onNoMatch } = patch;
+
+  const lines = content.split("\n");
+  const lineIndex = findMatchingLine(lines, match, pattern, regex);
+
+  if (lineIndex === -1) {
+    handleNoMatch(
+      onNoMatch,
+      `Patch 'insert-before-line' did not match: pattern not found in ${filePath}`,
+      warnings
+    );
+    return { content, applied: false };
+  }
+
+  // Insert content before the matched line
+  const trimmedContent = insertContent.replace(/\n$/, "");
+  const before = lines.slice(0, lineIndex);
+  const after = lines.slice(lineIndex);
+
+  const result = [...before, trimmedContent, ...after].join("\n");
+
+  return { content: result, applied: true };
+}
+
+/**
+ * Apply a replace-line patch.
+ */
+function applyReplaceLine(
+  content: string,
+  patch: ReplaceLinePatch,
+  warnings: string[],
+  filePath: string
+): { content: string; applied: boolean } {
+  const { match, pattern, regex, replacement, onNoMatch } = patch;
+
+  const lines = content.split("\n");
+  const lineIndex = findMatchingLine(lines, match, pattern, regex);
+
+  if (lineIndex === -1) {
+    handleNoMatch(
+      onNoMatch,
+      `Patch 'replace-line' did not match: pattern not found in ${filePath}`,
+      warnings
+    );
+    return { content, applied: false };
+  }
+
+  // Replace the matched line
+  lines[lineIndex] = replacement;
+
+  return { content: lines.join("\n"), applied: true };
+}
+
+/**
+ * Find the line indices for start and end markers.
+ */
+function findBetweenMarkers(
+  lines: string[],
+  start: string,
+  end: string
+): { startIndex: number; endIndex: number } | null {
+  let startIndex = -1;
+  let endIndex = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    if (startIndex === -1 && lines[i].includes(start)) {
+      startIndex = i;
+    } else if (startIndex !== -1 && lines[i].includes(end)) {
+      endIndex = i;
+      break;
+    }
+  }
+
+  if (startIndex === -1 || endIndex === -1) {
+    return null;
+  }
+
+  return { startIndex, endIndex };
+}
+
+/**
+ * Apply a delete-between patch.
+ */
+function applyDeleteBetween(
+  content: string,
+  patch: DeleteBetweenPatch,
+  warnings: string[],
+  filePath: string
+): { content: string; applied: boolean } {
+  const { start, end, inclusive, onNoMatch } = patch;
+
+  const lines = content.split("\n");
+  const markers = findBetweenMarkers(lines, start, end);
+
+  if (!markers) {
+    handleNoMatch(
+      onNoMatch,
+      `Patch 'delete-between' did not match: markers not found in ${filePath}`,
+      warnings
+    );
+    return { content, applied: false };
+  }
+
+  const { startIndex, endIndex } = markers;
+
+  // Delete lines between (and optionally including) the markers
+  const deleteStart = inclusive ? startIndex : startIndex + 1;
+  const deleteEnd = inclusive ? endIndex + 1 : endIndex;
+
+  const before = lines.slice(0, deleteStart);
+  const after = lines.slice(deleteEnd);
+
+  let result = [...before, ...after].join("\n");
+
+  // Clean up multiple consecutive blank lines
+  result = result.replace(/\n{3,}/g, "\n\n");
+
+  return { content: result, applied: true };
+}
+
+/**
+ * Apply a replace-between patch.
+ */
+function applyReplaceBetween(
+  content: string,
+  patch: ReplaceBetweenPatch,
+  warnings: string[],
+  filePath: string
+): { content: string; applied: boolean } {
+  const { start, end, content: newContent, inclusive, onNoMatch } = patch;
+
+  const lines = content.split("\n");
+  const markers = findBetweenMarkers(lines, start, end);
+
+  if (!markers) {
+    handleNoMatch(
+      onNoMatch,
+      `Patch 'replace-between' did not match: markers not found in ${filePath}`,
+      warnings
+    );
+    return { content, applied: false };
+  }
+
+  const { startIndex, endIndex } = markers;
+  const trimmedContent = newContent.replace(/\n$/, "");
+
+  // Replace lines between (and optionally including) the markers
+  if (inclusive) {
+    // Replace including markers
+    const before = lines.slice(0, startIndex);
+    const after = lines.slice(endIndex + 1);
+    return { content: [...before, trimmedContent, ...after].join("\n"), applied: true };
+  } else {
+    // Replace content between markers, keep markers
+    const before = lines.slice(0, startIndex + 1);
+    const after = lines.slice(endIndex);
+    return { content: [...before, trimmedContent, ...after].join("\n"), applied: true };
+  }
+}
+
+/**
  * Apply a single patch to content.
  */
 function applySinglePatch(
@@ -706,6 +951,16 @@ function applySinglePatch(
       return applyRenameFrontmatter(content, patch, warnings, filePath);
     case "merge-frontmatter":
       return applyMergeFrontmatter(content, patch, warnings, filePath);
+    case "insert-after-line":
+      return applyInsertAfterLine(content, patch, warnings, filePath);
+    case "insert-before-line":
+      return applyInsertBeforeLine(content, patch, warnings, filePath);
+    case "replace-line":
+      return applyReplaceLine(content, patch, warnings, filePath);
+    case "delete-between":
+      return applyDeleteBetween(content, patch, warnings, filePath);
+    case "replace-between":
+      return applyReplaceBetween(content, patch, warnings, filePath);
     default: {
       // TypeScript exhaustiveness check
       const _exhaustive: never = patch;

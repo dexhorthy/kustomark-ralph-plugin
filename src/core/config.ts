@@ -80,6 +80,53 @@ const mergeFrontmatterPatchSchema = patchBaseSchema.extend({
   values: z.record(z.unknown()),
 });
 
+// Insert-after-line operation schema (M2)
+// Note: Either 'match' or 'pattern' should be provided (validated at runtime)
+const insertAfterLinePatchSchema = patchBaseSchema.extend({
+  op: z.literal("insert-after-line"),
+  match: z.string().optional(),
+  pattern: z.string().optional(),
+  regex: z.boolean().optional(),
+  content: z.string(),
+});
+
+// Insert-before-line operation schema (M2)
+// Note: Either 'match' or 'pattern' should be provided (validated at runtime)
+const insertBeforeLinePatchSchema = patchBaseSchema.extend({
+  op: z.literal("insert-before-line"),
+  match: z.string().optional(),
+  pattern: z.string().optional(),
+  regex: z.boolean().optional(),
+  content: z.string(),
+});
+
+// Replace-line operation schema (M2)
+// Note: Either 'match' or 'pattern' should be provided (validated at runtime)
+const replaceLinePatchSchema = patchBaseSchema.extend({
+  op: z.literal("replace-line"),
+  match: z.string().optional(),
+  pattern: z.string().optional(),
+  regex: z.boolean().optional(),
+  replacement: z.string(),
+});
+
+// Delete-between operation schema (M2)
+const deleteBetweenPatchSchema = patchBaseSchema.extend({
+  op: z.literal("delete-between"),
+  start: z.string(),
+  end: z.string(),
+  inclusive: z.boolean().default(true),
+});
+
+// Replace-between operation schema (M2)
+const replaceBetweenPatchSchema = patchBaseSchema.extend({
+  op: z.literal("replace-between"),
+  start: z.string(),
+  end: z.string(),
+  content: z.string(),
+  inclusive: z.boolean().default(false),
+});
+
 // Union of all patch operation schemas
 const patchSchema = z.discriminatedUnion("op", [
   replacePatchSchema,
@@ -92,6 +139,11 @@ const patchSchema = z.discriminatedUnion("op", [
   removeFrontmatterPatchSchema,
   renameFrontmatterPatchSchema,
   mergeFrontmatterPatchSchema,
+  insertAfterLinePatchSchema,
+  insertBeforeLinePatchSchema,
+  replaceLinePatchSchema,
+  deleteBetweenPatchSchema,
+  replaceBetweenPatchSchema,
 ]);
 
 // Main kustomark configuration schema
@@ -116,6 +168,11 @@ export type SetFrontmatterPatch = z.infer<typeof setFrontmatterPatchSchema>;
 export type RemoveFrontmatterPatch = z.infer<typeof removeFrontmatterPatchSchema>;
 export type RenameFrontmatterPatch = z.infer<typeof renameFrontmatterPatchSchema>;
 export type MergeFrontmatterPatch = z.infer<typeof mergeFrontmatterPatchSchema>;
+export type InsertAfterLinePatch = z.infer<typeof insertAfterLinePatchSchema>;
+export type InsertBeforeLinePatch = z.infer<typeof insertBeforeLinePatchSchema>;
+export type ReplaceLinePatch = z.infer<typeof replaceLinePatchSchema>;
+export type DeleteBetweenPatch = z.infer<typeof deleteBetweenPatchSchema>;
+export type ReplaceBetweenPatch = z.infer<typeof replaceBetweenPatchSchema>;
 export type Patch = z.infer<typeof patchSchema>;
 export type KustomarkConfig = z.infer<typeof kustomarkConfigSchema>;
 
@@ -133,6 +190,11 @@ export {
   removeFrontmatterPatchSchema,
   renameFrontmatterPatchSchema,
   mergeFrontmatterPatchSchema,
+  insertAfterLinePatchSchema,
+  insertBeforeLinePatchSchema,
+  replaceLinePatchSchema,
+  deleteBetweenPatchSchema,
+  replaceBetweenPatchSchema,
   patchSchema,
   kustomarkConfigSchema,
 };
