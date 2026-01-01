@@ -64,7 +64,7 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - [ ] Watch mode
 - [ ] Explain command
 - [ ] Lint command
-- [ ] Init command
+- [x] Init command
 - [ ] Schema command
 - [ ] Build stats
 
@@ -80,3 +80,4 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - M3 Git remote resources implemented: URL parsing (GitHub shorthand, git::, SSH), fetching via git clone, caching layer (136 tests passing)
 - M3 HTTP remote resources implemented: download, archive extraction (tar.gz, tgz, tar, zip), caching (139 tests passing)
 - M3 Lock file support implemented: schema, read/write, integrity verification with SHA256 (163 tests passing) - M3 COMPLETE!
+- M4 Init command implemented: scaffolds kustomark.yaml with --base and --output flags, JSON output (170 tests passing)

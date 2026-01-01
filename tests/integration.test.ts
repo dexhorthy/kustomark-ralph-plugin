@@ -797,6 +797,169 @@ resources:
     });
   });
 
+  describe("Init Command", () => {
+    test("creates kustomark.yaml in specified directory", async () => {
+      const initDir = join(testDir, "new-project");
+
+      // Run init command
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "init", initDir],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      const exitCode = await proc.exited;
+      expect(exitCode).toBe(0);
+
+      // Verify config was created
+      const configPath = join(initDir, "kustomark.yaml");
+      const { existsSync } = await import("fs");
+      expect(existsSync(configPath)).toBe(true);
+
+      // Verify config content
+      const content = await readFile(configPath, "utf-8");
+      expect(content).toContain("apiVersion: kustomark/v1");
+      expect(content).toContain("kind: Kustomization");
+      expect(content).toContain("output:");
+      expect(content).toContain("resources:");
+    });
+
+    test("creates overlay config with --base flag", async () => {
+      const initDir = join(testDir, "overlay");
+
+      // Run init command with --base
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "init", initDir, "--base", "../base/"],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      const exitCode = await proc.exited;
+      expect(exitCode).toBe(0);
+
+      // Verify config was created with base reference
+      const configPath = join(initDir, "kustomark.yaml");
+      const content = await readFile(configPath, "utf-8");
+      expect(content).toContain("../base/");
+    });
+
+    test("creates config with custom --output", async () => {
+      const initDir = join(testDir, "custom-output");
+
+      // Run init command with --output
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "init", initDir, "--output", "../../.claude/skills"],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      const exitCode = await proc.exited;
+      expect(exitCode).toBe(0);
+
+      // Verify config has custom output
+      const configPath = join(initDir, "kustomark.yaml");
+      const content = await readFile(configPath, "utf-8");
+      expect(content).toContain("output: ../../.claude/skills");
+    });
+
+    test("fails when config already exists", async () => {
+      const initDir = join(testDir, "existing-config");
+      await mkdir(initDir, { recursive: true });
+
+      // Create existing config
+      await writeFile(join(initDir, "kustomark.yaml"), "existing content");
+
+      // Try to init - should fail
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "init", initDir],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      const exitCode = await proc.exited;
+      expect(exitCode).toBe(1);
+    });
+
+    test("returns JSON output with --format=json", async () => {
+      const initDir = join(testDir, "json-output");
+
+      // Run init command with JSON format
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "init", initDir, "--format=json"],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      const exitCode = await proc.exited;
+      const stdout = await new Response(proc.stdout).text();
+
+      expect(exitCode).toBe(0);
+
+      // Parse JSON output
+      const result = JSON.parse(stdout);
+      expect(result.success).toBe(true);
+      expect(result.created).toContain("kustomark.yaml");
+      expect(result.type).toBe("base");
+    });
+
+    test("returns overlay type when --base is used", async () => {
+      const initDir = join(testDir, "overlay-json");
+
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "init", initDir, "--base", "../base/", "--format=json"],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      const exitCode = await proc.exited;
+      const stdout = await new Response(proc.stdout).text();
+
+      expect(exitCode).toBe(0);
+
+      const result = JSON.parse(stdout);
+      expect(result.type).toBe("overlay");
+    });
+
+    test("creates nested directories if they don't exist", async () => {
+      const initDir = join(testDir, "deeply", "nested", "directory");
+
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "init", initDir],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      const exitCode = await proc.exited;
+      expect(exitCode).toBe(0);
+
+      // Verify nested directories and config were created
+      const configPath = join(initDir, "kustomark.yaml");
+      const { existsSync } = await import("fs");
+      expect(existsSync(configPath)).toBe(true);
+    });
+  });
+
   describe("Error Handling", () => {
     test("handles missing config file gracefully", async () => {
       const { loadConfigFile } = await import("../src/core/config.js");

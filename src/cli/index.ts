@@ -36,12 +36,22 @@ interface ValidateResult {
   validationErrors?: ValidationError[];
 }
 
+interface InitResult {
+  success: boolean;
+  created: string;
+  type: "base" | "overlay";
+  error?: string;
+}
+
 // CLI options
 interface CliOptions {
   format: "text" | "json";
   clean: boolean;
   verbose: number; // 0, 1, 2, or 3
   quiet: boolean;
+  // Init command options
+  base?: string;
+  output?: string;
 }
 
 // Parse command line arguments
@@ -84,6 +94,14 @@ function parseArgs(args: string[]): {
       options.verbose = 1;
     } else if (arg === "-q") {
       options.quiet = true;
+    } else if (arg.startsWith("--base=")) {
+      options.base = arg.slice("--base=".length);
+    } else if (arg === "--base" && i + 1 < args.length) {
+      options.base = args[++i];
+    } else if (arg.startsWith("--output=")) {
+      options.output = arg.slice("--output=".length);
+    } else if (arg === "--output" && i + 1 < args.length) {
+      options.output = args[++i];
     } else if (!arg.startsWith("-")) {
       positionalArgs.push(arg);
     }
@@ -517,6 +535,71 @@ async function validate(
   return result;
 }
 
+// Init command implementation
+async function init(
+  targetPath: string,
+  options: CliOptions
+): Promise<InitResult> {
+  const logger = createLogger(options);
+  const result: InitResult = {
+    success: false,
+    created: "",
+    type: options.base ? "overlay" : "base",
+  };
+
+  try {
+    const resolvedPath = resolve(targetPath);
+    const configPath = join(resolvedPath, "kustomark.yaml");
+    result.created = configPath;
+
+    // Check if config already exists
+    if (existsSync(configPath)) {
+      throw new Error(`Config already exists: ${configPath}`);
+    }
+
+    // Create directory if it doesn't exist
+    await mkdir(resolvedPath, { recursive: true });
+
+    // Generate config content
+    let configContent: string;
+
+    if (options.base) {
+      // Overlay config that references a base
+      const outputValue = options.output || "./output";
+      configContent = `apiVersion: kustomark/v1
+kind: Kustomization
+output: ${outputValue}
+resources:
+  - ${options.base}
+patches: []
+`;
+    } else {
+      // Base config
+      const outputValue = options.output || "./output";
+      configContent = `apiVersion: kustomark/v1
+kind: Kustomization
+output: ${outputValue}
+resources:
+  - "*.md"
+patches: []
+`;
+    }
+
+    // Write the config file
+    await writeFile(configPath, configContent, "utf-8");
+
+    result.success = true;
+    logger.info(`Created ${configPath}`);
+    logger.verbose(`Type: ${result.type}`, 1);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    result.error = errorMsg;
+    logger.error(errorMsg);
+  }
+
+  return result;
+}
+
 // Print usage information
 function printUsage(): void {
   console.log(`
@@ -529,17 +612,21 @@ Commands:
   build [path]     Build and write output
   diff [path]      Show what would change
   validate [path]  Validate config
+  init [path]      Create a new kustomark.yaml
 
 Options:
   --format=<text|json>  Output format (default: text)
   --clean               Remove files not in source (build only)
   -v, -vv, -vvv         Verbose output (increasing levels)
   -q                    Quiet mode (errors only)
+  --base=<path>         Base config to extend (init only)
+  --output=<path>       Output directory (init only)
 
 Examples:
   kustomark build ./my-project
   kustomark diff ./my-project --format=json
   kustomark validate ./my-project -v
+  kustomark init ./overlays/team --base ../company
 `);
 }
 
@@ -554,6 +641,31 @@ async function main(): Promise<void> {
   }
 
   let exitCode = 0;
+
+  // Handle init command separately (doesn't need existing config)
+  if (command === "init") {
+    try {
+      const result = await init(path, options);
+      if (options.format === "json") {
+        console.log(JSON.stringify(result, null, 2));
+      }
+      exitCode = result.success ? 0 : 1;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      if (options.format === "json") {
+        console.log(
+          JSON.stringify({
+            success: false,
+            error: errorMsg,
+          })
+        );
+      } else {
+        console.error(`ERROR: ${errorMsg}`);
+      }
+      exitCode = 1;
+    }
+    process.exit(exitCode);
+  }
 
   try {
     const configPath = await findConfigPath(path);
