@@ -1,6 +1,6 @@
-import { mkdir, readdir, readFile, rm, stat } from "fs/promises";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "fs/promises";
 import { join, dirname } from "path";
-import { homedir } from "os";
+import { homedir, tmpdir } from "os";
 import { spawn } from "child_process";
 
 /**
@@ -386,6 +386,216 @@ export async function fetchGitResource(
 }
 
 /**
+ * Determine the archive type from URL
+ */
+function getArchiveType(url: string): "tar.gz" | "tgz" | "tar" | "zip" | null {
+  const lowerUrl = url.toLowerCase();
+  if (lowerUrl.endsWith(".tar.gz")) return "tar.gz";
+  if (lowerUrl.endsWith(".tgz")) return "tgz";
+  if (lowerUrl.endsWith(".tar")) return "tar";
+  if (lowerUrl.endsWith(".zip")) return "zip";
+  return null;
+}
+
+/**
+ * Extract a tar archive to a directory
+ */
+async function extractTar(
+  archivePath: string,
+  destDir: string,
+  gzipped: boolean
+): Promise<{ success: boolean; error?: string }> {
+  const args = gzipped
+    ? ["-xzf", archivePath, "-C", destDir]
+    : ["-xf", archivePath, "-C", destDir];
+
+  const result = await execCommand("tar", args);
+
+  if (result.exitCode !== 0) {
+    return { success: false, error: result.stderr };
+  }
+
+  return { success: true };
+}
+
+/**
+ * Extract a zip archive to a directory
+ */
+async function extractZip(
+  archivePath: string,
+  destDir: string
+): Promise<{ success: boolean; error?: string }> {
+  const result = await execCommand("unzip", ["-o", archivePath, "-d", destDir]);
+
+  if (result.exitCode !== 0) {
+    return { success: false, error: result.stderr };
+  }
+
+  return { success: true };
+}
+
+/**
+ * Download a file from a URL
+ */
+async function downloadFile(
+  url: string,
+  destPath: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
+    }
+
+    if (!response.body) {
+      return { success: false, error: "No response body" };
+    }
+
+    // Ensure directory exists
+    await mkdir(dirname(destPath), { recursive: true });
+
+    // Write the response to a file
+    const arrayBuffer = await response.arrayBuffer();
+    await writeFile(destPath, Buffer.from(arrayBuffer));
+
+    return { success: true };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    return { success: false, error };
+  }
+}
+
+/**
+ * Fetch an HTTP remote resource (archive)
+ */
+export async function fetchHttpResource(
+  parsed: ParsedRemoteUrl,
+  options: { cacheDir?: string; noCache?: boolean } = {}
+): Promise<FetchResult> {
+  const cacheDir = options.cacheDir || getCacheDir();
+  const cacheKey = getCacheKey(parsed);
+  const cachePath = join(cacheDir, "http", cacheKey);
+
+  // Check cache first (unless noCache is set)
+  if (!options.noCache) {
+    try {
+      const cacheStats = await stat(cachePath);
+      if (cacheStats.isDirectory()) {
+        // Cache hit - read files from cache
+        const subdir = parsed.subpath
+          ? join(cachePath, parsed.subpath)
+          : cachePath;
+
+        const files = await readDirRecursive(subdir, subdir);
+        return { success: true, files, cached: true };
+      }
+    } catch {
+      // Cache miss - continue to fetch
+    }
+  }
+
+  // Determine archive type
+  const archiveType = getArchiveType(parsed.fetchUrl);
+
+  if (!archiveType) {
+    // Not an archive - try to fetch as a single file
+    const downloadResult = await downloadFile(
+      parsed.fetchUrl,
+      join(cachePath, "file")
+    );
+
+    if (!downloadResult.success) {
+      return {
+        success: false,
+        files: [],
+        cached: false,
+        error: downloadResult.error,
+      };
+    }
+
+    // Read the single file
+    try {
+      const content = await readFile(join(cachePath, "file"), "utf-8");
+      const filename = parsed.fetchUrl.split("/").pop() || "file";
+      return {
+        success: true,
+        files: [{ relativePath: filename, content }],
+        cached: false,
+      };
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      return {
+        success: false,
+        files: [],
+        cached: false,
+        error: `Failed to read downloaded file: ${error}`,
+      };
+    }
+  }
+
+  // Download the archive to a temp location
+  const tempDir = join(tmpdir(), `kustomark-${Date.now()}`);
+  const archiveName = parsed.fetchUrl.split("/").pop() || "archive";
+  const archivePath = join(tempDir, archiveName);
+
+  await mkdir(tempDir, { recursive: true });
+
+  const downloadResult = await downloadFile(parsed.fetchUrl, archivePath);
+
+  if (!downloadResult.success) {
+    await rm(tempDir, { recursive: true }).catch(() => {});
+    return {
+      success: false,
+      files: [],
+      cached: false,
+      error: downloadResult.error,
+    };
+  }
+
+  // Create cache directory for extraction
+  await mkdir(cachePath, { recursive: true });
+
+  // Extract the archive
+  let extractResult: { success: boolean; error?: string };
+
+  switch (archiveType) {
+    case "tar.gz":
+    case "tgz":
+      extractResult = await extractTar(archivePath, cachePath, true);
+      break;
+    case "tar":
+      extractResult = await extractTar(archivePath, cachePath, false);
+      break;
+    case "zip":
+      extractResult = await extractZip(archivePath, cachePath);
+      break;
+  }
+
+  // Clean up temp directory
+  await rm(tempDir, { recursive: true }).catch(() => {});
+
+  if (!extractResult.success) {
+    await rm(cachePath, { recursive: true }).catch(() => {});
+    return {
+      success: false,
+      files: [],
+      cached: false,
+      error: extractResult.error,
+    };
+  }
+
+  // Read files from the extracted archive (or subpath)
+  const subdir = parsed.subpath
+    ? join(cachePath, parsed.subpath)
+    : cachePath;
+
+  const files = await readDirRecursive(subdir, subdir);
+
+  return { success: true, files, cached: false };
+}
+
+/**
  * Fetch a remote resource (auto-detects type)
  */
 export async function fetchRemoteResource(
@@ -399,13 +609,7 @@ export async function fetchRemoteResource(
       return fetchGitResource(parsed, options);
 
     case "http":
-      // HTTP resources not yet implemented
-      return {
-        success: false,
-        files: [],
-        cached: false,
-        error: "HTTP remote resources not yet implemented",
-      };
+      return fetchHttpResource(parsed, options);
 
     case "local":
       return {
@@ -427,27 +631,30 @@ export async function clearCache(
   const cacheDir = options.cacheDir || getCacheDir();
   let cleared = 0;
 
-  const gitCacheDir = join(cacheDir, "git");
+  // Clear both git and http caches
+  for (const subdir of ["git", "http"]) {
+    const typeCacheDir = join(cacheDir, subdir);
 
-  try {
-    const entries = await readdir(gitCacheDir, { withFileTypes: true });
+    try {
+      const entries = await readdir(typeCacheDir, { withFileTypes: true });
 
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        // If filter is provided, check if the entry name matches
-        if (filter) {
-          if (!entry.name.includes(filter.replace(/[^a-zA-Z0-9]/g, "_"))) {
-            continue;
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          // If filter is provided, check if the entry name matches
+          if (filter) {
+            if (!entry.name.includes(filter.replace(/[^a-zA-Z0-9]/g, "_"))) {
+              continue;
+            }
           }
-        }
 
-        const entryPath = join(gitCacheDir, entry.name);
-        await rm(entryPath, { recursive: true });
-        cleared++;
+          const entryPath = join(typeCacheDir, entry.name);
+          await rm(entryPath, { recursive: true });
+          cleared++;
+        }
       }
+    } catch {
+      // Cache directory doesn't exist
     }
-  } catch {
-    // Cache directory doesn't exist
   }
 
   return { cleared };
@@ -458,32 +665,36 @@ export async function clearCache(
  */
 export async function listCache(
   options: { cacheDir?: string } = {}
-): Promise<Array<{ key: string; path: string; size: number }>> {
+): Promise<Array<{ key: string; path: string; size: number; type: "git" | "http" }>> {
   const cacheDir = options.cacheDir || getCacheDir();
-  const entries: Array<{ key: string; path: string; size: number }> = [];
+  const entries: Array<{ key: string; path: string; size: number; type: "git" | "http" }> = [];
 
-  const gitCacheDir = join(cacheDir, "git");
+  // List both git and http caches
+  for (const subdir of ["git", "http"] as const) {
+    const typeCacheDir = join(cacheDir, subdir);
 
-  try {
-    const dirEntries = await readdir(gitCacheDir, { withFileTypes: true });
+    try {
+      const dirEntries = await readdir(typeCacheDir, { withFileTypes: true });
 
-    for (const entry of dirEntries) {
-      if (entry.isDirectory()) {
-        const entryPath = join(gitCacheDir, entry.name);
+      for (const entry of dirEntries) {
+        if (entry.isDirectory()) {
+          const entryPath = join(typeCacheDir, entry.name);
 
-        // Calculate directory size (simplified - just count files)
-        const files = await readDirRecursive(entryPath, entryPath);
-        const size = files.reduce((acc, f) => acc + f.content.length, 0);
+          // Calculate directory size (simplified - just count files)
+          const files = await readDirRecursive(entryPath, entryPath);
+          const size = files.reduce((acc, f) => acc + f.content.length, 0);
 
-        entries.push({
-          key: entry.name,
-          path: entryPath,
-          size,
-        });
+          entries.push({
+            key: entry.name,
+            path: entryPath,
+            size,
+            type: subdir,
+          });
+        }
       }
+    } catch {
+      // Cache directory doesn't exist
     }
-  } catch {
-    // Cache directory doesn't exist
   }
 
   return entries;

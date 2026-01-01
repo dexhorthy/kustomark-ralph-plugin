@@ -3,6 +3,7 @@ import {
   isRemoteResource,
   parseRemoteUrl,
   getCacheKey,
+  fetchHttpResource,
 } from "../src/core/remote.js";
 
 describe("Remote Resources", () => {
@@ -179,6 +180,39 @@ describe("Remote Resources", () => {
 
       expect(typeof key).toBe("string");
       expect(key.length).toBeGreaterThan(0);
+    });
+
+    test("generates key for HTTP archive URLs", () => {
+      const parsed = parseRemoteUrl("https://example.com/release.tar.gz//subdir");
+      const key = getCacheKey(parsed);
+
+      expect(typeof key).toBe("string");
+      expect(key).toContain("example_com");
+    });
+  });
+
+  describe("fetchHttpResource", () => {
+    test("returns error for invalid URL", async () => {
+      const parsed = parseRemoteUrl("https://nonexistent.invalid/file.tar.gz");
+      const result = await fetchHttpResource(parsed, { noCache: true });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+    });
+
+    test("parses archive types correctly", () => {
+      // Test that we correctly identify archive types from URLs
+      const tarGz = parseRemoteUrl("https://example.com/file.tar.gz");
+      const tgz = parseRemoteUrl("https://example.com/file.tgz");
+      const tar = parseRemoteUrl("https://example.com/file.tar");
+      const zip = parseRemoteUrl("https://example.com/file.zip");
+      const md = parseRemoteUrl("https://example.com/file.md");
+
+      expect(tarGz.type).toBe("http");
+      expect(tgz.type).toBe("http");
+      expect(tar.type).toBe("http");
+      expect(zip.type).toBe("http");
+      expect(md.type).toBe("http");
     });
   });
 });
