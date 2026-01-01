@@ -188,4 +188,244 @@ Step 2
       expect(result2.content).toBe("bar");
     });
   });
+
+  describe("set-frontmatter", () => {
+    test("adds frontmatter to file without existing frontmatter", () => {
+      const content = `# Title
+
+Some content`;
+      const patches: Patch[] = [{
+        op: "set-frontmatter",
+        key: "version",
+        value: "2.0"
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).toContain("---");
+      expect(result.content).toContain("version: \"2.0\"");
+      expect(result.applied).toBe(1);
+    });
+
+    test("updates existing frontmatter key", () => {
+      const content = `---
+version: "1.0"
+name: test
+---
+
+# Title`;
+      const patches: Patch[] = [{
+        op: "set-frontmatter",
+        key: "version",
+        value: "2.0"
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).toContain("version: \"2.0\"");
+      expect(result.content).toContain("name: test");
+    });
+
+    test("supports dot notation for nested keys", () => {
+      const content = `---
+name: test
+---
+
+# Title`;
+      const patches: Patch[] = [{
+        op: "set-frontmatter",
+        key: "metadata.author",
+        value: "kustomark"
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).toContain("metadata:");
+      expect(result.content).toContain("author: kustomark");
+    });
+
+    test("supports array values", () => {
+      const content = `---
+name: test
+---
+
+# Title`;
+      const patches: Patch[] = [{
+        op: "set-frontmatter",
+        key: "tags",
+        value: ["foo", "bar"]
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).toContain("tags:");
+      expect(result.content).toContain("- foo");
+      expect(result.content).toContain("- bar");
+    });
+  });
+
+  describe("remove-frontmatter", () => {
+    test("removes existing key", () => {
+      const content = `---
+version: "1.0"
+deprecated: true
+---
+
+# Title`;
+      const patches: Patch[] = [{
+        op: "remove-frontmatter",
+        key: "deprecated"
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).toContain("version: \"1.0\"");
+      expect(result.content).not.toContain("deprecated");
+      expect(result.applied).toBe(1);
+    });
+
+    test("warns when key not found", () => {
+      const content = `---
+version: "1.0"
+---
+
+# Title`;
+      const patches: Patch[] = [{
+        op: "remove-frontmatter",
+        key: "nonexistent"
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.warnings.length).toBeGreaterThan(0);
+      expect(result.applied).toBe(0);
+    });
+
+    test("warns when no frontmatter exists", () => {
+      const content = `# Title
+
+Content`;
+      const patches: Patch[] = [{
+        op: "remove-frontmatter",
+        key: "version"
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.warnings.length).toBeGreaterThan(0);
+      expect(result.applied).toBe(0);
+    });
+  });
+
+  describe("rename-frontmatter", () => {
+    test("renames existing key", () => {
+      const content = `---
+name: "Test Skill"
+version: "1.0"
+---
+
+# Title`;
+      const patches: Patch[] = [{
+        op: "rename-frontmatter",
+        old: "name",
+        new: "skill_name"
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).toContain("skill_name: Test Skill");
+      // Check that the original key "name" no longer exists as a top-level key
+      expect(result.content).toMatch(/skill_name:/);
+      expect(result.content).not.toMatch(/^name:/m);
+      expect(result.applied).toBe(1);
+    });
+
+    test("warns when old key not found", () => {
+      const content = `---
+version: "1.0"
+---
+
+# Title`;
+      const patches: Patch[] = [{
+        op: "rename-frontmatter",
+        old: "nonexistent",
+        new: "new_key"
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.warnings.length).toBeGreaterThan(0);
+      expect(result.applied).toBe(0);
+    });
+  });
+
+  describe("merge-frontmatter", () => {
+    test("merges values into existing frontmatter", () => {
+      const content = `---
+name: test
+version: "1.0"
+---
+
+# Title`;
+      const patches: Patch[] = [{
+        op: "merge-frontmatter",
+        values: {
+          version: "2.0",
+          tags: ["patched", "team"]
+        }
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).toContain("name: test");
+      expect(result.content).toContain("version: \"2.0\"");
+      expect(result.content).toContain("tags:");
+      expect(result.content).toContain("- patched");
+      expect(result.applied).toBe(1);
+    });
+
+    test("creates frontmatter if none exists", () => {
+      const content = `# Title
+
+Content`;
+      const patches: Patch[] = [{
+        op: "merge-frontmatter",
+        values: {
+          version: "1.0",
+          author: "test"
+        }
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).toContain("---");
+      expect(result.content).toContain("version: \"1.0\"");
+      expect(result.content).toContain("author: test");
+    });
+
+    test("deep merges nested objects", () => {
+      const content = `---
+metadata:
+  author: original
+  date: "2024-01-01"
+---
+
+# Title`;
+      const patches: Patch[] = [{
+        op: "merge-frontmatter",
+        values: {
+          metadata: {
+            author: "updated",
+            version: "2.0"
+          }
+        }
+      }];
+
+      const result = applyPatches(content, patches, "test.md");
+
+      expect(result.content).toContain("author: updated");
+      expect(result.content).toContain("date:");
+      expect(result.content).toContain("version: \"2.0\"");
+    });
+  });
 });

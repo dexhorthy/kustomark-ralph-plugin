@@ -7,3 +7,5 @@
 2. ensure all tests and linting passes with `bun check && bun test`, then update IMPLEMENTATION_PLAN.md with your progress
 
 3. use `git add -A` and `git commit -m "..."` to commit your changes - do not include any claude attribution
+
+4. git push origin main

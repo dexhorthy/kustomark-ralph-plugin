@@ -54,6 +54,32 @@ const appendToSectionPatchSchema = patchBaseSchema.extend({
   content: z.string(),
 });
 
+// Set-frontmatter operation schema (M2)
+const setFrontmatterPatchSchema = patchBaseSchema.extend({
+  op: z.literal("set-frontmatter"),
+  key: z.string(),
+  value: z.union([z.string(), z.number(), z.boolean(), z.array(z.unknown()), z.record(z.unknown())]),
+});
+
+// Remove-frontmatter operation schema (M2)
+const removeFrontmatterPatchSchema = patchBaseSchema.extend({
+  op: z.literal("remove-frontmatter"),
+  key: z.string(),
+});
+
+// Rename-frontmatter operation schema (M2)
+const renameFrontmatterPatchSchema = patchBaseSchema.extend({
+  op: z.literal("rename-frontmatter"),
+  old: z.string(),
+  new: z.string(),
+});
+
+// Merge-frontmatter operation schema (M2)
+const mergeFrontmatterPatchSchema = patchBaseSchema.extend({
+  op: z.literal("merge-frontmatter"),
+  values: z.record(z.unknown()),
+});
+
 // Union of all patch operation schemas
 const patchSchema = z.discriminatedUnion("op", [
   replacePatchSchema,
@@ -62,6 +88,10 @@ const patchSchema = z.discriminatedUnion("op", [
   replaceSectionPatchSchema,
   prependToSectionPatchSchema,
   appendToSectionPatchSchema,
+  setFrontmatterPatchSchema,
+  removeFrontmatterPatchSchema,
+  renameFrontmatterPatchSchema,
+  mergeFrontmatterPatchSchema,
 ]);
 
 // Main kustomark configuration schema
@@ -82,6 +112,10 @@ export type RemoveSectionPatch = z.infer<typeof removeSectionPatchSchema>;
 export type ReplaceSectionPatch = z.infer<typeof replaceSectionPatchSchema>;
 export type PrependToSectionPatch = z.infer<typeof prependToSectionPatchSchema>;
 export type AppendToSectionPatch = z.infer<typeof appendToSectionPatchSchema>;
+export type SetFrontmatterPatch = z.infer<typeof setFrontmatterPatchSchema>;
+export type RemoveFrontmatterPatch = z.infer<typeof removeFrontmatterPatchSchema>;
+export type RenameFrontmatterPatch = z.infer<typeof renameFrontmatterPatchSchema>;
+export type MergeFrontmatterPatch = z.infer<typeof mergeFrontmatterPatchSchema>;
 export type Patch = z.infer<typeof patchSchema>;
 export type KustomarkConfig = z.infer<typeof kustomarkConfigSchema>;
 
@@ -95,6 +129,10 @@ export {
   replaceSectionPatchSchema,
   prependToSectionPatchSchema,
   appendToSectionPatchSchema,
+  setFrontmatterPatchSchema,
+  removeFrontmatterPatchSchema,
+  renameFrontmatterPatchSchema,
+  mergeFrontmatterPatchSchema,
   patchSchema,
   kustomarkConfigSchema,
 };

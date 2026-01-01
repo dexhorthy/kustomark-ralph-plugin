@@ -1,5 +1,6 @@
 import { minimatch } from "minimatch";
 import GithubSlugger from "github-slugger";
+import yaml from "yaml";
 import type {
   Patch,
   ReplacePatch,
@@ -8,6 +9,10 @@ import type {
   ReplaceSectionPatch,
   PrependToSectionPatch,
   AppendToSectionPatch,
+  SetFrontmatterPatch,
+  RemoveFrontmatterPatch,
+  RenameFrontmatterPatch,
+  MergeFrontmatterPatch,
   OnNoMatch,
 } from "./config.js";
 
@@ -391,6 +396,287 @@ function applyAppendToSection(
 }
 
 /**
+ * Frontmatter regex - matches YAML frontmatter at the start of a file
+ */
+const FRONTMATTER_REGEX = /^---\n([\s\S]*?)\n---/;
+
+/**
+ * Parse frontmatter from markdown content.
+ * Returns the frontmatter object and the rest of the content.
+ */
+function parseFrontmatter(content: string): {
+  frontmatter: Record<string, unknown> | null;
+  body: string;
+  hasFrontmatter: boolean;
+} {
+  const match = content.match(FRONTMATTER_REGEX);
+
+  if (!match) {
+    return { frontmatter: null, body: content, hasFrontmatter: false };
+  }
+
+  const frontmatterStr = match[1];
+  const body = content.slice(match[0].length);
+
+  try {
+    const frontmatter = yaml.parse(frontmatterStr) as Record<string, unknown>;
+    return { frontmatter: frontmatter || {}, body, hasFrontmatter: true };
+  } catch {
+    // If YAML parsing fails, treat as no frontmatter
+    return { frontmatter: null, body: content, hasFrontmatter: false };
+  }
+}
+
+/**
+ * Serialize frontmatter back to markdown format.
+ */
+function serializeFrontmatter(
+  frontmatter: Record<string, unknown>,
+  body: string
+): string {
+  const frontmatterStr = yaml.stringify(frontmatter).trim();
+  // Handle body that might start with newline or not
+  const normalizedBody = body.startsWith("\n") ? body : "\n" + body;
+  return `---\n${frontmatterStr}\n---${normalizedBody}`;
+}
+
+/**
+ * Get a nested value from an object using dot notation.
+ */
+function getNestedValue(
+  obj: Record<string, unknown>,
+  path: string
+): unknown {
+  const parts = path.split(".");
+  let current: unknown = obj;
+
+  for (const part of parts) {
+    if (current === null || current === undefined || typeof current !== "object") {
+      return undefined;
+    }
+    current = (current as Record<string, unknown>)[part];
+  }
+
+  return current;
+}
+
+/**
+ * Set a nested value in an object using dot notation.
+ */
+function setNestedValue(
+  obj: Record<string, unknown>,
+  path: string,
+  value: unknown
+): void {
+  const parts = path.split(".");
+  let current = obj;
+
+  for (let i = 0; i < parts.length - 1; i++) {
+    const part = parts[i];
+    if (!(part in current) || typeof current[part] !== "object" || current[part] === null) {
+      current[part] = {};
+    }
+    current = current[part] as Record<string, unknown>;
+  }
+
+  current[parts[parts.length - 1]] = value;
+}
+
+/**
+ * Delete a nested value from an object using dot notation.
+ */
+function deleteNestedValue(
+  obj: Record<string, unknown>,
+  path: string
+): boolean {
+  const parts = path.split(".");
+  let current = obj;
+
+  for (let i = 0; i < parts.length - 1; i++) {
+    const part = parts[i];
+    if (!(part in current) || typeof current[part] !== "object" || current[part] === null) {
+      return false;
+    }
+    current = current[part] as Record<string, unknown>;
+  }
+
+  const lastPart = parts[parts.length - 1];
+  if (lastPart in current) {
+    delete current[lastPart];
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Apply a set-frontmatter patch.
+ */
+function applySetFrontmatter(
+  content: string,
+  patch: SetFrontmatterPatch,
+  _warnings: string[],
+  _filePath: string
+): { content: string; applied: boolean } {
+  const { key, value } = patch;
+
+  const { frontmatter, body, hasFrontmatter } = parseFrontmatter(content);
+
+  // Create frontmatter if it doesn't exist
+  const fm = frontmatter || {};
+
+  // Set the value using dot notation support
+  setNestedValue(fm, key, value);
+
+  // Serialize back
+  const result = serializeFrontmatter(fm, hasFrontmatter ? body : "\n" + content);
+
+  return { content: result, applied: true };
+}
+
+/**
+ * Apply a remove-frontmatter patch.
+ */
+function applyRemoveFrontmatter(
+  content: string,
+  patch: RemoveFrontmatterPatch,
+  warnings: string[],
+  filePath: string
+): { content: string; applied: boolean } {
+  const { key, onNoMatch } = patch;
+
+  const { frontmatter, body, hasFrontmatter } = parseFrontmatter(content);
+
+  if (!hasFrontmatter || !frontmatter) {
+    handleNoMatch(
+      onNoMatch,
+      `Patch 'remove-frontmatter' did not match: no frontmatter in ${filePath}`,
+      warnings
+    );
+    return { content, applied: false };
+  }
+
+  // Check if key exists
+  if (getNestedValue(frontmatter, key) === undefined) {
+    handleNoMatch(
+      onNoMatch,
+      `Patch 'remove-frontmatter' did not match: key "${key}" not found in frontmatter of ${filePath}`,
+      warnings
+    );
+    return { content, applied: false };
+  }
+
+  // Delete the key
+  deleteNestedValue(frontmatter, key);
+
+  // Serialize back
+  const result = serializeFrontmatter(frontmatter, body);
+
+  return { content: result, applied: true };
+}
+
+/**
+ * Apply a rename-frontmatter patch.
+ */
+function applyRenameFrontmatter(
+  content: string,
+  patch: RenameFrontmatterPatch,
+  warnings: string[],
+  filePath: string
+): { content: string; applied: boolean } {
+  const { old: oldKey, new: newKey, onNoMatch } = patch;
+
+  const { frontmatter, body, hasFrontmatter } = parseFrontmatter(content);
+
+  if (!hasFrontmatter || !frontmatter) {
+    handleNoMatch(
+      onNoMatch,
+      `Patch 'rename-frontmatter' did not match: no frontmatter in ${filePath}`,
+      warnings
+    );
+    return { content, applied: false };
+  }
+
+  // Check if old key exists
+  const value = getNestedValue(frontmatter, oldKey);
+  if (value === undefined) {
+    handleNoMatch(
+      onNoMatch,
+      `Patch 'rename-frontmatter' did not match: key "${oldKey}" not found in frontmatter of ${filePath}`,
+      warnings
+    );
+    return { content, applied: false };
+  }
+
+  // Delete old key and set new key
+  deleteNestedValue(frontmatter, oldKey);
+  setNestedValue(frontmatter, newKey, value);
+
+  // Serialize back
+  const result = serializeFrontmatter(frontmatter, body);
+
+  return { content: result, applied: true };
+}
+
+/**
+ * Deep merge two objects. Arrays are replaced, not concatenated.
+ */
+function deepMerge(
+  target: Record<string, unknown>,
+  source: Record<string, unknown>
+): Record<string, unknown> {
+  const result = { ...target };
+
+  for (const key of Object.keys(source)) {
+    const sourceValue = source[key];
+    const targetValue = result[key];
+
+    if (
+      sourceValue !== null &&
+      typeof sourceValue === "object" &&
+      !Array.isArray(sourceValue) &&
+      targetValue !== null &&
+      typeof targetValue === "object" &&
+      !Array.isArray(targetValue)
+    ) {
+      result[key] = deepMerge(
+        targetValue as Record<string, unknown>,
+        sourceValue as Record<string, unknown>
+      );
+    } else {
+      result[key] = sourceValue;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Apply a merge-frontmatter patch.
+ */
+function applyMergeFrontmatter(
+  content: string,
+  patch: MergeFrontmatterPatch,
+  _warnings: string[],
+  _filePath: string
+): { content: string; applied: boolean } {
+  const { values } = patch;
+
+  const { frontmatter, body, hasFrontmatter } = parseFrontmatter(content);
+
+  // Create frontmatter if it doesn't exist
+  const fm = frontmatter || {};
+
+  // Deep merge the values
+  const merged = deepMerge(fm, values as Record<string, unknown>);
+
+  // Serialize back
+  const result = serializeFrontmatter(merged, hasFrontmatter ? body : "\n" + content);
+
+  return { content: result, applied: true };
+}
+
+/**
  * Apply a single patch to content.
  */
 function applySinglePatch(
@@ -412,6 +698,14 @@ function applySinglePatch(
       return applyPrependToSection(content, patch, warnings, filePath);
     case "append-to-section":
       return applyAppendToSection(content, patch, warnings, filePath);
+    case "set-frontmatter":
+      return applySetFrontmatter(content, patch, warnings, filePath);
+    case "remove-frontmatter":
+      return applyRemoveFrontmatter(content, patch, warnings, filePath);
+    case "rename-frontmatter":
+      return applyRenameFrontmatter(content, patch, warnings, filePath);
+    case "merge-frontmatter":
+      return applyMergeFrontmatter(content, patch, warnings, filePath);
     default: {
       // TypeScript exhaustiveness check
       const _exhaustive: never = patch;
