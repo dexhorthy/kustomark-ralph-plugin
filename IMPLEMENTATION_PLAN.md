@@ -53,11 +53,11 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - [x] Global validators
 
 ### Phase 6: Remote Sources (M3) (PARTIAL)
-- [ ] Git remote resources
+- [x] Git remote resources (URL parsing, fetching, caching)
 - [ ] HTTP remote resources
 - [ ] Version pinning
 - [ ] Lock file support
-- [ ] Caching
+- [x] Caching (basic cache layer for git resources)
 - [x] File operations (copy-file, rename-file, delete-file, move-file)
 
 ### Phase 7: Developer Experience (M4)
@@ -77,3 +77,4 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - M2 Section operations implemented: rename-header, move-section, change-section-level (76 tests passing)
 - M2 Validation implemented: per-patch validation and global validators (95 tests passing) - M2 COMPLETE!
 - M3 File operations implemented: copy-file, rename-file, delete-file, move-file (115 tests passing)
+- M3 Git remote resources implemented: URL parsing (GitHub shorthand, git::, SSH), fetching via git clone, caching layer (136 tests passing)

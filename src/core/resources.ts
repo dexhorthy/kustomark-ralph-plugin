@@ -3,6 +3,7 @@ import { readFile } from "fs/promises";
 import { dirname, join, resolve, relative, isAbsolute } from "path";
 import { stat } from "fs/promises";
 import { loadConfigFile, type Patch } from "./config.js";
+import { isRemoteResource, fetchRemoteResource } from "./remote.js";
 
 /**
  * Represents a resolved file with its path information and content.
@@ -99,6 +100,26 @@ async function resolveSingleResource(
   negationPatterns: string[]
 ): Promise<ResolvedFile[]> {
   const resolvedFiles: ResolvedFile[] = [];
+
+  // Check if this is a remote resource (git or http)
+  if (isRemoteResource(pattern)) {
+    const fetchResult = await fetchRemoteResource(pattern);
+
+    if (!fetchResult.success) {
+      throw new Error(`Failed to fetch remote resource ${pattern}: ${fetchResult.error}`);
+    }
+
+    // Convert fetched files to resolved files
+    for (const file of fetchResult.files) {
+      resolvedFiles.push({
+        relativePath: file.relativePath,
+        absolutePath: `remote://${pattern}/${file.relativePath}`,
+        content: file.content,
+      });
+    }
+
+    return resolvedFiles;
+  }
 
   // Check if this is a kustomark config directory (ends with "/" or is a directory with kustomark.yaml)
   const isKustomarkDir = pattern.endsWith("/");
