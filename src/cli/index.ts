@@ -23,6 +23,12 @@ interface BuildResult {
   filesWritten: number;
   patchesApplied: number;
   warnings: string[];
+  // Stats (only populated with --stats)
+  duration?: number;
+  files?: { processed: number; written: number };
+  patches?: { applied: number; skipped: number };
+  bytes?: number;
+  byOperation?: Record<string, number>;
 }
 
 interface DiffFileResult {
@@ -69,6 +75,8 @@ interface CliOptions {
   file?: string;
   // Watch command options
   debounce: number;
+  // Build command options
+  stats: boolean;
 }
 
 // Parse command line arguments
@@ -84,6 +92,7 @@ function parseArgs(args: string[]): {
     quiet: false,
     strict: false,
     debounce: 300,
+    stats: false,
   };
 
   let command: string | null = null;
@@ -131,6 +140,8 @@ function parseArgs(args: string[]): {
       options.debounce = parseInt(arg.slice("--debounce=".length), 10) || 300;
     } else if (arg === "--debounce" && i + 1 < args.length) {
       options.debounce = parseInt(args[++i], 10) || 300;
+    } else if (arg === "--stats") {
+      options.stats = true;
     } else if (!arg.startsWith("-")) {
       positionalArgs.push(arg);
     }
@@ -231,12 +242,19 @@ async function build(
   options: CliOptions
 ): Promise<BuildResult> {
   const logger = createLogger(options);
+  const startTime = options.stats ? Date.now() : 0;
   const result: BuildResult = {
     success: false,
     filesWritten: 0,
     patchesApplied: 0,
     warnings: [],
   };
+
+  // Stats tracking
+  let totalBytes = 0;
+  let filesProcessed = 0;
+  let patchesSkipped = 0;
+  const byOperation: Record<string, number> = {};
 
   try {
     logger.verbose(`Loading config from ${configPath}`, 1);
@@ -259,6 +277,15 @@ async function build(
     result.warnings.push(...fileOpsResult.warnings);
     logger.verbose(`Applied ${fileOpsResult.operationsApplied} file operations`, 2);
 
+    // Track file operation stats
+    if (options.stats) {
+      for (const patch of patches) {
+        if (["copy-file", "rename-file", "delete-file", "move-file"].includes(patch.op)) {
+          byOperation[patch.op] = (byOperation[patch.op] || 0) + 1;
+        }
+      }
+    }
+
     // Track files we write for clean option
     const writtenFiles = new Set<string>();
     const existingFiles = await getOutputFiles(outputDir);
@@ -266,6 +293,7 @@ async function build(
     // Process each resource
     for (const resource of processedResources) {
       logger.verbose(`Processing ${resource.relativePath}`, 2);
+      filesProcessed++;
 
       // Apply content patches
       const patchResult = applyPatches(
@@ -277,12 +305,45 @@ async function build(
       result.patchesApplied += patchResult.applied;
       result.warnings.push(...patchResult.warnings);
 
+      // Track stats
+      if (options.stats) {
+        // Count eligible patches for this file and track by operation type
+        const { minimatch } = await import("minimatch");
+        let eligiblePatches = 0;
+
+        for (const patch of patches) {
+          if (!["copy-file", "rename-file", "delete-file", "move-file"].includes(patch.op)) {
+            // Check if patch applies to this file
+            const include = patch.include || ["**/*"];
+            const exclude = patch.exclude || [];
+            const matchesInclude = include.some((pattern) =>
+              minimatch(resource.relativePath, pattern)
+            );
+            const matchesExclude = exclude.some((pattern) =>
+              minimatch(resource.relativePath, pattern)
+            );
+            if (matchesInclude && !matchesExclude) {
+              eligiblePatches++;
+              byOperation[patch.op] = (byOperation[patch.op] || 0) + 1;
+            }
+          }
+        }
+
+        // Skipped = eligible - applied for this file
+        patchesSkipped += Math.max(0, eligiblePatches - patchResult.applied);
+      }
+
       // Write output file
       const outputPath = join(outputDir, resource.relativePath);
       const outputDirPath = dirname(outputPath);
 
       await mkdir(outputDirPath, { recursive: true });
       await writeFile(outputPath, patchResult.content, "utf-8");
+
+      // Track bytes
+      if (options.stats) {
+        totalBytes += Buffer.byteLength(patchResult.content, "utf-8");
+      }
 
       writtenFiles.add(resource.relativePath);
       result.filesWritten++;
@@ -302,6 +363,15 @@ async function build(
     }
 
     result.success = true;
+
+    // Add stats if requested
+    if (options.stats) {
+      result.duration = Date.now() - startTime;
+      result.files = { processed: filesProcessed, written: result.filesWritten };
+      result.patches = { applied: result.patchesApplied, skipped: patchesSkipped };
+      result.bytes = totalBytes;
+      result.byOperation = byOperation;
+    }
 
     // Log warnings
     for (const warning of result.warnings) {
@@ -879,6 +949,7 @@ Commands:
 Options:
   --format=<text|json>  Output format (default: text)
   --clean               Remove files not in source (build only)
+  --stats               Include build statistics (build only)
   -v, -vv, -vvv         Verbose output (increasing levels)
   -q                    Quiet mode (errors only)
   --base=<path>         Base config to extend (init only)

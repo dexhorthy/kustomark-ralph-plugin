@@ -38,12 +38,12 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 
 ## Current Status
 
-**M1 MVP is complete!** All core features implemented and tested:
-- 38 tests passing
+**All milestones complete!** M1-M4 fully implemented and tested:
+- 202 tests passing
 - TypeScript type checking passes
 - ESLint linting passes
 
-## Next Milestones
+## Milestones
 
 ### Phase 5: Enhanced Operations (M2) (COMPLETE)
 - [x] Frontmatter operations (set-frontmatter, remove-frontmatter, rename-frontmatter, merge-frontmatter)
@@ -60,13 +60,13 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - [x] Caching (cache layer for git and http resources)
 - [x] File operations (copy-file, rename-file, delete-file, move-file)
 
-### Phase 7: Developer Experience (M4)
+### Phase 7: Developer Experience (M4) (COMPLETE)
 - [x] Watch mode
 - [x] Explain command
 - [x] Lint command
 - [x] Init command
 - [x] Schema command
-- [ ] Build stats
+- [x] Build stats
 
 ## Progress Log
 
@@ -85,3 +85,4 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - M4 Lint command implemented: checks for unreachable/redundant/overlapping patches, --strict flag (190 tests passing)
 - M4 Explain command implemented: shows resolution chain, file lineage with --file flag (199 tests passing)
 - M4 Watch mode implemented: rebuilds on file changes, --debounce flag, JSON event output (200 tests passing)
+- M4 Build stats implemented: --stats flag for build command with duration, files, patches, bytes, byOperation metrics (202 tests passing) - M4 COMPLETE!

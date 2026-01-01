@@ -290,6 +290,109 @@ resources:
 
       expect(config.output).toBe(outputDir);
     });
+
+    test("--stats flag includes build statistics", async () => {
+      const baseDir = join(testDir, "stats-test");
+      const outputDir = join(testDir, "stats-output");
+      await mkdir(baseDir, { recursive: true });
+
+      await writeFile(
+        join(baseDir, "doc.md"),
+        `# Documentation
+
+This has foo in it.
+`
+      );
+
+      await writeFile(
+        join(baseDir, "kustomark.yaml"),
+        `apiVersion: kustomark/v1
+kind: Kustomization
+output: ${outputDir}
+resources:
+  - "*.md"
+patches:
+  - op: replace
+    old: foo
+    new: bar
+`
+      );
+
+      // Run build command with --stats
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "build", baseDir, "--stats", "--format=json"],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      const exitCode = await proc.exited;
+      const stdout = await new Response(proc.stdout).text();
+
+      expect(exitCode).toBe(0);
+
+      const result = JSON.parse(stdout);
+      expect(result.success).toBe(true);
+      expect(result.duration).toBeGreaterThanOrEqual(0);
+      expect(result.files).toBeDefined();
+      expect(result.files.processed).toBe(1);
+      expect(result.files.written).toBe(1);
+      expect(result.patches).toBeDefined();
+      expect(result.patches.applied).toBe(1);
+      expect(result.bytes).toBeGreaterThan(0);
+      expect(result.byOperation).toBeDefined();
+      expect(result.byOperation.replace).toBe(1);
+    });
+
+    test("--stats tracks skipped patches", async () => {
+      const baseDir = join(testDir, "stats-skipped");
+      const outputDir = join(testDir, "stats-skipped-output");
+      await mkdir(baseDir, { recursive: true });
+
+      await writeFile(
+        join(baseDir, "doc.md"),
+        `# Documentation
+
+No matching content here.
+`
+      );
+
+      await writeFile(
+        join(baseDir, "kustomark.yaml"),
+        `apiVersion: kustomark/v1
+kind: Kustomization
+output: ${outputDir}
+resources:
+  - "*.md"
+patches:
+  - op: replace
+    old: nonexistent
+    new: replacement
+    onNoMatch: skip
+`
+      );
+
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "build", baseDir, "--stats", "--format=json"],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      const exitCode = await proc.exited;
+      const stdout = await new Response(proc.stdout).text();
+
+      expect(exitCode).toBe(0);
+
+      const result = JSON.parse(stdout);
+      expect(result.success).toBe(true);
+      expect(result.patches.applied).toBe(0);
+      expect(result.patches.skipped).toBe(1);
+    });
   });
 
   describe("Diff Command", () => {
