@@ -10,6 +10,12 @@ import { applyPatches } from "../core/patches.js";
 import { runGlobalValidators, type ValidationError } from "../core/validation.js";
 import { applyFileOperations, applyFileOperationResults } from "../core/file-operations.js";
 import { lintConfig, type LintResult } from "../core/lint.js";
+import {
+  explainConfig,
+  explainFile,
+  type ExplainResult,
+  type FileLineageResult,
+} from "../core/explain.js";
 
 // Types for CLI output
 interface BuildResult {
@@ -59,6 +65,8 @@ interface CliOptions {
   output?: string;
   // Lint command options
   strict: boolean;
+  // Explain command options
+  file?: string;
 }
 
 // Parse command line arguments
@@ -112,6 +120,10 @@ function parseArgs(args: string[]): {
       options.output = args[++i];
     } else if (arg === "--strict") {
       options.strict = true;
+    } else if (arg.startsWith("--file=")) {
+      options.file = arg.slice("--file=".length);
+    } else if (arg === "--file" && i + 1 < args.length) {
+      options.file = args[++i];
     } else if (!arg.startsWith("-")) {
       positionalArgs.push(arg);
     }
@@ -673,6 +685,56 @@ async function lint(
   }
 }
 
+// Explain command implementation
+async function explain(
+  configPath: string,
+  options: CliOptions
+): Promise<ExplainResult | FileLineageResult> {
+  const logger = createLogger(options);
+
+  try {
+    if (options.file) {
+      // Explain specific file lineage
+      logger.verbose(`Explaining file lineage for ${options.file}`, 1);
+      const result = await explainFile(configPath, options.file);
+
+      if (options.format === "text") {
+        logger.info(`File: ${result.file}`);
+        logger.info(`Source: ${result.source}`);
+        logger.info(`Patches applied: ${result.patches.length}`);
+
+        for (const patch of result.patches) {
+          logger.info(`  - [${patch.config}] ${patch.op}`);
+        }
+      }
+
+      return result;
+    } else {
+      // Explain overall config
+      logger.verbose(`Explaining config at ${configPath}`, 1);
+      const result = await explainConfig(configPath);
+
+      if (options.format === "text") {
+        logger.info(`Config: ${result.config}`);
+        logger.info(`Output: ${result.output}`);
+        logger.info(`Resolution chain:`);
+
+        for (const entry of result.chain) {
+          logger.info(`  - ${entry.config}: ${entry.resources} resources, ${entry.patches} patches`);
+        }
+
+        logger.info(`Total: ${result.totalFiles} files, ${result.totalPatches} patches`);
+      }
+
+      return result;
+    }
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    logger.error(errorMsg);
+    throw error;
+  }
+}
+
 // Print usage information
 function printUsage(): void {
   console.log(`
@@ -688,6 +750,7 @@ Commands:
   init [path]      Create a new kustomark.yaml
   schema           Export JSON Schema for editor integration
   lint [path]      Check for common issues
+  explain [path]   Show resolution chain and patch details
 
 Options:
   --format=<text|json>  Output format (default: text)
@@ -697,6 +760,7 @@ Options:
   --base=<path>         Base config to extend (init only)
   --output=<path>       Output directory (init only)
   --strict              Treat warnings as errors (lint only)
+  --file=<path>         Show lineage for specific file (explain only)
 
 Examples:
   kustomark build ./my-project
@@ -705,6 +769,7 @@ Examples:
   kustomark init ./overlays/team --base ../company
   kustomark schema > kustomark.schema.json
   kustomark lint ./my-project --strict
+  kustomark explain ./team --file skills/commit.md
 `);
 }
 
@@ -795,6 +860,15 @@ async function main(): Promise<void> {
         } else {
           exitCode = result.errorCount > 0 ? 1 : 0;
         }
+        break;
+      }
+
+      case "explain": {
+        const result = await explain(configPath, options);
+        if (options.format === "json") {
+          console.log(JSON.stringify(result, null, 2));
+        }
+        exitCode = 0;
         break;
       }
 

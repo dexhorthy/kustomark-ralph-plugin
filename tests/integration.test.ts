@@ -1169,6 +1169,123 @@ patches:
     });
   });
 
+  describe("Explain Command", () => {
+    test("explains config resolution chain", async () => {
+      const baseDir = join(testDir, "explain-chain");
+      await mkdir(baseDir, { recursive: true });
+
+      await writeFile(join(baseDir, "doc.md"), "# Doc\n\nContent.\n");
+      await writeFile(
+        join(baseDir, "kustomark.yaml"),
+        `apiVersion: kustomark/v1
+kind: Kustomization
+output: ./output
+resources:
+  - "*.md"
+patches:
+  - op: replace
+    old: foo
+    new: bar
+`
+      );
+
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "explain", baseDir, "--format=json"],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      const exitCode = await proc.exited;
+      const stdout = await new Response(proc.stdout).text();
+
+      expect(exitCode).toBe(0);
+
+      const result = JSON.parse(stdout);
+      expect(result.output).toBe("./output");
+      expect(result.chain).toBeDefined();
+      expect(result.totalPatches).toBe(1);
+    });
+
+    test("explains file lineage with --file flag", async () => {
+      const baseDir = join(testDir, "explain-file");
+      await mkdir(baseDir, { recursive: true });
+
+      await writeFile(join(baseDir, "doc.md"), "# Doc\n");
+      await writeFile(
+        join(baseDir, "kustomark.yaml"),
+        `apiVersion: kustomark/v1
+kind: Kustomization
+output: ./output
+resources:
+  - "*.md"
+patches:
+  - op: replace
+    old: foo
+    new: bar
+  - op: remove-section
+    id: deprecated
+`
+      );
+
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "explain", baseDir, "--file=doc.md", "--format=json"],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      const exitCode = await proc.exited;
+      const stdout = await new Response(proc.stdout).text();
+
+      expect(exitCode).toBe(0);
+
+      const result = JSON.parse(stdout);
+      expect(result.file).toBe("doc.md");
+      expect(result.patches.length).toBe(2);
+    });
+
+    test("text output includes resolution info", async () => {
+      const baseDir = join(testDir, "explain-text");
+      await mkdir(baseDir, { recursive: true });
+
+      await writeFile(join(baseDir, "doc.md"), "# Doc\n");
+      await writeFile(
+        join(baseDir, "kustomark.yaml"),
+        `apiVersion: kustomark/v1
+kind: Kustomization
+output: ./output
+resources:
+  - "*.md"
+patches:
+  - op: replace
+    old: foo
+    new: bar
+`
+      );
+
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "explain", baseDir],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      const exitCode = await proc.exited;
+      const stdout = await new Response(proc.stdout).text();
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("Output:");
+      expect(stdout).toContain("Resolution chain:");
+    });
+  });
+
   describe("Error Handling", () => {
     test("handles missing config file gracefully", async () => {
       const { loadConfigFile } = await import("../src/core/config.js");
