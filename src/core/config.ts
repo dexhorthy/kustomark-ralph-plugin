@@ -1,6 +1,7 @@
 import { z } from "zod";
 import yaml from "yaml";
 import { readFile } from "fs/promises";
+import { zodToJsonSchema } from "zod-to-json-schema";
 
 // Common fields for all patch operations
 const onNoMatchSchema = z.enum(["skip", "warn", "error"]).default("warn");
@@ -313,4 +314,16 @@ export function parseConfig(yamlString: string): KustomarkConfig {
 export async function loadConfigFile(filePath: string): Promise<KustomarkConfig> {
   const content = await readFile(filePath, "utf-8");
   return parseConfig(content);
+}
+
+/**
+ * Generate JSON Schema from the kustomark configuration schema.
+ * Useful for editor integration and validation tooling.
+ * @returns JSON Schema object for kustomark configuration
+ */
+export function generateJsonSchema(): Record<string, unknown> {
+  return zodToJsonSchema(kustomarkConfigSchema, {
+    name: "KustomarkConfig",
+    $refStrategy: "none",
+  }) as Record<string, unknown>;
 }

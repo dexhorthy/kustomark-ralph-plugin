@@ -960,6 +960,67 @@ resources:
     });
   });
 
+  describe("Schema Command", () => {
+    test("outputs valid JSON Schema", async () => {
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "schema"],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      const exitCode = await proc.exited;
+      const stdout = await new Response(proc.stdout).text();
+
+      expect(exitCode).toBe(0);
+
+      // Parse JSON output
+      const schemaObj = JSON.parse(stdout);
+      expect(schemaObj).toBeDefined();
+      // Schema uses $ref to definitions
+      expect(schemaObj.$ref).toBeDefined();
+      expect(schemaObj.definitions).toBeDefined();
+    });
+
+    test("schema contains required properties", async () => {
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "schema"],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      await proc.exited;
+      const stdout = await new Response(proc.stdout).text();
+      const schemaObj = JSON.parse(stdout);
+
+      // Check that the schema has the expected definitions
+      expect(schemaObj.definitions).toBeDefined();
+      expect(schemaObj.definitions.KustomarkConfig).toBeDefined();
+
+      const configSchema = schemaObj.definitions.KustomarkConfig;
+      expect(configSchema.type).toBe("object");
+      expect(configSchema.properties.apiVersion).toBeDefined();
+      expect(configSchema.properties.kind).toBeDefined();
+      expect(configSchema.properties.output).toBeDefined();
+      expect(configSchema.properties.resources).toBeDefined();
+      expect(configSchema.properties.patches).toBeDefined();
+    });
+
+    test("schema can be used with generateJsonSchema function", async () => {
+      const { generateJsonSchema } = await import("../src/core/config.js");
+      const schemaObj = generateJsonSchema();
+
+      expect(schemaObj).toBeDefined();
+      expect(schemaObj.$ref).toBeDefined();
+      expect(schemaObj.definitions).toBeDefined();
+    });
+  });
+
   describe("Error Handling", () => {
     test("handles missing config file gracefully", async () => {
       const { loadConfigFile } = await import("../src/core/config.js");

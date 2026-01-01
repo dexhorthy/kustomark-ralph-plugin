@@ -4,7 +4,7 @@ import { existsSync } from "fs";
 import { readFile, writeFile, mkdir, readdir, rm, stat } from "fs/promises";
 import { join, dirname, resolve, relative } from "path";
 import * as Diff from "diff";
-import { loadConfigFile } from "../core/config.js";
+import { loadConfigFile, generateJsonSchema } from "../core/config.js";
 import { resolveResources } from "../core/resources.js";
 import { applyPatches } from "../core/patches.js";
 import { runGlobalValidators, type ValidationError } from "../core/validation.js";
@@ -41,6 +41,10 @@ interface InitResult {
   created: string;
   type: "base" | "overlay";
   error?: string;
+}
+
+interface SchemaResult {
+  schema: Record<string, unknown>;
 }
 
 // CLI options
@@ -600,6 +604,12 @@ patches: []
   return result;
 }
 
+// Schema command implementation
+function schema(): SchemaResult {
+  const jsonSchema = generateJsonSchema();
+  return { schema: jsonSchema };
+}
+
 // Print usage information
 function printUsage(): void {
   console.log(`
@@ -613,6 +623,7 @@ Commands:
   diff [path]      Show what would change
   validate [path]  Validate config
   init [path]      Create a new kustomark.yaml
+  schema           Export JSON Schema for editor integration
 
 Options:
   --format=<text|json>  Output format (default: text)
@@ -627,6 +638,7 @@ Examples:
   kustomark diff ./my-project --format=json
   kustomark validate ./my-project -v
   kustomark init ./overlays/team --base ../company
+  kustomark schema > kustomark.schema.json
 `);
 }
 
@@ -641,6 +653,14 @@ async function main(): Promise<void> {
   }
 
   let exitCode = 0;
+
+  // Handle schema command separately (doesn't need any path)
+  if (command === "schema") {
+    const result = schema();
+    // Schema always outputs JSON
+    console.log(JSON.stringify(result.schema, null, 2));
+    process.exit(0);
+  }
 
   // Handle init command separately (doesn't need existing config)
   if (command === "init") {

@@ -65,7 +65,7 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - [ ] Explain command
 - [ ] Lint command
 - [x] Init command
-- [ ] Schema command
+- [x] Schema command
 - [ ] Build stats
 
 ## Progress Log
@@ -81,3 +81,4 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - M3 HTTP remote resources implemented: download, archive extraction (tar.gz, tgz, tar, zip), caching (139 tests passing)
 - M3 Lock file support implemented: schema, read/write, integrity verification with SHA256 (163 tests passing) - M3 COMPLETE!
 - M4 Init command implemented: scaffolds kustomark.yaml with --base and --output flags, JSON output (170 tests passing)
+- M4 Schema command implemented: exports JSON Schema for editor integration using zod-to-json-schema (173 tests passing)
