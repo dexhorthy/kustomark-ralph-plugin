@@ -52,13 +52,13 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - [x] Per-patch validation
 - [x] Global validators
 
-### Phase 6: Remote Sources (M3)
+### Phase 6: Remote Sources (M3) (PARTIAL)
 - [ ] Git remote resources
 - [ ] HTTP remote resources
 - [ ] Version pinning
 - [ ] Lock file support
 - [ ] Caching
-- [ ] File operations (copy-file, rename-file, delete-file, move-file)
+- [x] File operations (copy-file, rename-file, delete-file, move-file)
 
 ### Phase 7: Developer Experience (M4)
 - [ ] Watch mode
@@ -76,3 +76,4 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - M2 Line operations implemented: insert-after-line, insert-before-line, replace-line, delete-between, replace-between (64 tests passing)
 - M2 Section operations implemented: rename-header, move-section, change-section-level (76 tests passing)
 - M2 Validation implemented: per-patch validation and global validators (95 tests passing) - M2 COMPLETE!
+- M3 File operations implemented: copy-file, rename-file, delete-file, move-file (115 tests passing)

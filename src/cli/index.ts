@@ -8,6 +8,7 @@ import { loadConfigFile } from "../core/config.js";
 import { resolveResources } from "../core/resources.js";
 import { applyPatches } from "../core/patches.js";
 import { runGlobalValidators, type ValidationError } from "../core/validation.js";
+import { applyFileOperations, applyFileOperationResults } from "../core/file-operations.js";
 
 // Types for CLI output
 interface BuildResult {
@@ -202,18 +203,27 @@ async function build(
     const outputDir = resolve(configDir, config.output);
     logger.verbose(`Output directory: ${outputDir}`, 1);
 
+    // Apply file operations first (copy, rename, delete, move)
+    const patches = config.patches || [];
+    const fileOpsResult = applyFileOperations(patches, resources);
+    const processedResources = applyFileOperationResults(resources, fileOpsResult);
+
+    result.patchesApplied += fileOpsResult.operationsApplied;
+    result.warnings.push(...fileOpsResult.warnings);
+    logger.verbose(`Applied ${fileOpsResult.operationsApplied} file operations`, 2);
+
     // Track files we write for clean option
     const writtenFiles = new Set<string>();
     const existingFiles = await getOutputFiles(outputDir);
 
     // Process each resource
-    for (const resource of resources) {
+    for (const resource of processedResources) {
       logger.verbose(`Processing ${resource.relativePath}`, 2);
 
-      // Apply patches
+      // Apply content patches
       const patchResult = applyPatches(
         resource.content,
-        config.patches || [],
+        patches,
         resource.relativePath
       );
 
@@ -286,17 +296,24 @@ async function diff(
     const outputDir = resolve(configDir, config.output);
     logger.verbose(`Output directory: ${outputDir}`, 1);
 
+    // Apply file operations first (copy, rename, delete, move)
+    const patches = config.patches || [];
+    const fileOpsResult = applyFileOperations(patches, resources);
+    const processedResources = applyFileOperationResults(resources, fileOpsResult);
+
+    logger.verbose(`Applied ${fileOpsResult.operationsApplied} file operations`, 2);
+
     const existingFiles = await getOutputFiles(outputDir);
     const processedFiles = new Set<string>();
 
     // Process each resource
-    for (const resource of resources) {
+    for (const resource of processedResources) {
       logger.verbose(`Processing ${resource.relativePath}`, 2);
 
-      // Apply patches
+      // Apply content patches
       const patchResult = applyPatches(
         resource.content,
-        config.patches || [],
+        patches,
         resource.relativePath
       );
 

@@ -168,6 +168,33 @@ const changeSectionLevelPatchSchema = patchBaseSchema.extend({
   delta: z.number(),
 });
 
+// Copy-file operation schema (M3)
+const copyFilePatchSchema = patchBaseSchema.extend({
+  op: z.literal("copy-file"),
+  src: z.string(),
+  dest: z.string(),
+});
+
+// Rename-file operation schema (M3)
+const renameFilePatchSchema = patchBaseSchema.extend({
+  op: z.literal("rename-file"),
+  match: z.string(),
+  rename: z.string(),
+});
+
+// Delete-file operation schema (M3)
+const deleteFilePatchSchema = patchBaseSchema.extend({
+  op: z.literal("delete-file"),
+  match: z.string(),
+});
+
+// Move-file operation schema (M3)
+const moveFilePatchSchema = patchBaseSchema.extend({
+  op: z.literal("move-file"),
+  match: z.string(),
+  dest: z.string(),
+});
+
 // Union of all patch operation schemas
 const patchSchema = z.discriminatedUnion("op", [
   replacePatchSchema,
@@ -188,6 +215,10 @@ const patchSchema = z.discriminatedUnion("op", [
   renameHeaderPatchSchema,
   moveSectionPatchSchema,
   changeSectionLevelPatchSchema,
+  copyFilePatchSchema,
+  renameFilePatchSchema,
+  deleteFilePatchSchema,
+  moveFilePatchSchema,
 ]);
 
 // Main kustomark configuration schema
@@ -221,6 +252,10 @@ export type ReplaceBetweenPatch = z.infer<typeof replaceBetweenPatchSchema>;
 export type RenameHeaderPatch = z.infer<typeof renameHeaderPatchSchema>;
 export type MoveSectionPatch = z.infer<typeof moveSectionPatchSchema>;
 export type ChangeSectionLevelPatch = z.infer<typeof changeSectionLevelPatchSchema>;
+export type CopyFilePatch = z.infer<typeof copyFilePatchSchema>;
+export type RenameFilePatch = z.infer<typeof renameFilePatchSchema>;
+export type DeleteFilePatch = z.infer<typeof deleteFilePatchSchema>;
+export type MoveFilePatch = z.infer<typeof moveFilePatchSchema>;
 export type PatchValidation = z.infer<typeof patchValidationSchema>;
 export type Validator = z.infer<typeof validatorSchema>;
 export type Patch = z.infer<typeof patchSchema>;
@@ -250,6 +285,10 @@ export {
   renameHeaderPatchSchema,
   moveSectionPatchSchema,
   changeSectionLevelPatchSchema,
+  copyFilePatchSchema,
+  renameFilePatchSchema,
+  deleteFilePatchSchema,
+  moveFilePatchSchema,
   patchSchema,
   kustomarkConfigSchema,
 };

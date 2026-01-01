@@ -23,6 +23,7 @@ import type {
   ChangeSectionLevelPatch,
   OnNoMatch,
 } from "./config.js";
+import { isFileOperationPatch } from "./file-operations.js";
 
 /**
  * Result of applying patches to content
@@ -1096,6 +1097,11 @@ function applySinglePatch(
   warnings: string[],
   filePath: string
 ): { content: string; applied: boolean } {
+  // File operations are handled separately by file-operations.ts
+  if (isFileOperationPatch(patch)) {
+    return { content, applied: false };
+  }
+
   switch (patch.op) {
     case "replace":
       return applyReplace(content, patch, warnings, filePath);
