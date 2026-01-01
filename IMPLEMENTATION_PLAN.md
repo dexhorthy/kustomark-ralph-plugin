@@ -52,11 +52,11 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - [x] Per-patch validation
 - [x] Global validators
 
-### Phase 6: Remote Sources (M3) (PARTIAL)
+### Phase 6: Remote Sources (M3) (COMPLETE)
 - [x] Git remote resources (URL parsing, fetching, caching)
 - [x] HTTP remote resources (download, archive extraction: tar.gz, tgz, tar, zip)
-- [ ] Version pinning
-- [ ] Lock file support
+- [x] Version pinning (refs supported in git URLs)
+- [x] Lock file support (read/write, integrity verification, SHA256)
 - [x] Caching (cache layer for git and http resources)
 - [x] File operations (copy-file, rename-file, delete-file, move-file)
 
@@ -79,3 +79,4 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - M3 File operations implemented: copy-file, rename-file, delete-file, move-file (115 tests passing)
 - M3 Git remote resources implemented: URL parsing (GitHub shorthand, git::, SSH), fetching via git clone, caching layer (136 tests passing)
 - M3 HTTP remote resources implemented: download, archive extraction (tar.gz, tgz, tar, zip), caching (139 tests passing)
+- M3 Lock file support implemented: schema, read/write, integrity verification with SHA256 (163 tests passing) - M3 COMPLETE!

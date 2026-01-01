@@ -46,6 +46,8 @@ export interface FetchResult {
   files: Array<{ relativePath: string; content: string }>;
   /** Whether the result came from cache */
   cached: boolean;
+  /** Resolved ref (git commit SHA) if applicable */
+  resolvedRef?: string;
   /** Error message if fetch failed */
   error?: string;
 }
@@ -332,6 +334,17 @@ async function readDirRecursive(
 }
 
 /**
+ * Get the current HEAD commit SHA from a git repository
+ */
+async function getGitHeadSha(repoPath: string): Promise<string | undefined> {
+  const result = await execCommand("git", ["rev-parse", "HEAD"], repoPath);
+  if (result.exitCode === 0) {
+    return result.stdout.trim();
+  }
+  return undefined;
+}
+
+/**
  * Fetch a git remote resource
  */
 export async function fetchGitResource(
@@ -353,7 +366,8 @@ export async function fetchGitResource(
           : cachePath;
 
         const files = await readDirRecursive(subdir, subdir);
-        return { success: true, files, cached: true };
+        const resolvedRef = await getGitHeadSha(cachePath);
+        return { success: true, files, cached: true, resolvedRef };
       }
     } catch {
       // Cache miss - continue to fetch
@@ -375,6 +389,9 @@ export async function fetchGitResource(
     };
   }
 
+  // Get the resolved commit SHA
+  const resolvedRef = await getGitHeadSha(cachePath);
+
   // Read files from the cloned repo (or subpath)
   const subdir = parsed.subpath
     ? join(cachePath, parsed.subpath)
@@ -382,7 +399,7 @@ export async function fetchGitResource(
 
   const files = await readDirRecursive(subdir, subdir);
 
-  return { success: true, files, cached: false };
+  return { success: true, files, cached: false, resolvedRef };
 }
 
 /**
