@@ -822,6 +822,55 @@ interface WatchEvent {
   timestamp: string;
 }
 
+// Hook execution environment variables
+interface HookEnv {
+  KUSTOMARK_EVENT: string;
+  KUSTOMARK_SUCCESS?: string;
+  KUSTOMARK_FILES_WRITTEN?: string;
+  KUSTOMARK_PATCHES_APPLIED?: string;
+  KUSTOMARK_ERROR?: string;
+}
+
+// Execute watch hooks
+async function executeHooks(
+  hooks: string[] | undefined,
+  env: HookEnv,
+  options: CliOptions
+): Promise<void> {
+  if (!hooks || hooks.length === 0) return;
+
+  const { spawn } = await import("child_process");
+
+  for (const command of hooks) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(command, [], {
+          shell: true,
+          env: { ...process.env, ...env },
+          stdio: options.format === "json" ? "ignore" : "inherit",
+        });
+
+        child.on("close", (code) => {
+          if (code === 0) {
+            resolve();
+          } else {
+            reject(new Error(`Hook "${command}" exited with code ${code}`));
+          }
+        });
+
+        child.on("error", (err) => {
+          reject(err);
+        });
+      });
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      if (options.format !== "json") {
+        console.error(`Hook error: ${errorMsg}`);
+      }
+    }
+  }
+}
+
 // Watch command implementation
 async function watch(
   configPath: string,
@@ -829,6 +878,15 @@ async function watch(
 ): Promise<void> {
   const fs = await import("fs");
   const configDir = dirname(configPath);
+
+  // Load config to get watch hooks
+  let watchHooks: { onStart?: string[]; onBuild?: string[]; onError?: string[] } | undefined;
+  try {
+    const config = await loadConfigFile(configPath);
+    watchHooks = config.watch;
+  } catch {
+    // Config load failed - hooks will not be available
+  }
 
   // Emit event
   function emit(event: WatchEvent): void {
@@ -864,6 +922,22 @@ async function watch(
         error: result.warnings.length > 0 ? result.warnings[0] : undefined,
         timestamp: new Date().toISOString(),
       });
+
+      // Execute onBuild or onError hooks based on result
+      if (result.success) {
+        await executeHooks(watchHooks?.onBuild, {
+          KUSTOMARK_EVENT: "build",
+          KUSTOMARK_SUCCESS: "true",
+          KUSTOMARK_FILES_WRITTEN: String(result.filesWritten),
+          KUSTOMARK_PATCHES_APPLIED: String(result.patchesApplied),
+        }, options);
+      } else {
+        await executeHooks(watchHooks?.onError, {
+          KUSTOMARK_EVENT: "error",
+          KUSTOMARK_SUCCESS: "false",
+          KUSTOMARK_ERROR: result.warnings[0] || "Build failed",
+        }, options);
+      }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       emit({
@@ -872,6 +946,13 @@ async function watch(
         error: errorMsg,
         timestamp: new Date().toISOString(),
       });
+
+      // Execute onError hooks
+      await executeHooks(watchHooks?.onError, {
+        KUSTOMARK_EVENT: "error",
+        KUSTOMARK_SUCCESS: "false",
+        KUSTOMARK_ERROR: errorMsg,
+      }, options);
     }
   }
 
@@ -892,6 +973,11 @@ async function watch(
     event: "start",
     timestamp: new Date().toISOString(),
   });
+
+  // Execute onStart hooks
+  await executeHooks(watchHooks?.onStart, {
+    KUSTOMARK_EVENT: "start",
+  }, options);
 
   // Initial build
   await runBuild();
@@ -967,6 +1053,20 @@ Examples:
   kustomark lint ./my-project --strict
   kustomark explain ./team --file skills/commit.md
   kustomark watch ./team --debounce 500
+
+Watch Hooks:
+  Configure shell commands to run on watch events in kustomark.yaml:
+    watch:
+      onStart: ["echo starting"]
+      onBuild: ["echo done"]
+      onError: ["notify-send failed"]
+
+  Hooks receive environment variables:
+    KUSTOMARK_EVENT          - "start", "build", or "error"
+    KUSTOMARK_SUCCESS        - "true" or "false"
+    KUSTOMARK_FILES_WRITTEN  - Number of files written
+    KUSTOMARK_PATCHES_APPLIED - Number of patches applied
+    KUSTOMARK_ERROR          - Error message (on error)
 `);
 }
 

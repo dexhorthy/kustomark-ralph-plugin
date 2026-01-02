@@ -38,8 +38,8 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 
 ## Current Status
 
-**All milestones complete!** M1-M4 fully implemented and tested:
-- 202 tests passing
+**All milestones complete!** M1-M4 plus deferred features implemented and tested:
+- 208 tests passing
 - TypeScript type checking passes
 - ESLint linting passes
 
@@ -68,6 +68,12 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - [x] Schema command
 - [x] Build stats
 
+### Phase 8: Deferred Features (COMPLETE)
+- [x] Watch hooks (onStart, onBuild, onError shell commands triggered during watch mode)
+  - Config schema extension with `watch` field
+  - Hook execution with environment variables (KUSTOMARK_EVENT, KUSTOMARK_SUCCESS, KUSTOMARK_FILES_WRITTEN, KUSTOMARK_PATCHES_APPLIED, KUSTOMARK_ERROR)
+  - Integration tests for hook execution
+
 ## Progress Log
 
 - Initial planning complete
@@ -86,3 +92,4 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - M4 Explain command implemented: shows resolution chain, file lineage with --file flag (199 tests passing)
 - M4 Watch mode implemented: rebuilds on file changes, --debounce flag, JSON event output (200 tests passing)
 - M4 Build stats implemented: --stats flag for build command with duration, files, patches, bytes, byOperation metrics (202 tests passing) - M4 COMPLETE!
+- Watch hooks implemented: onStart, onBuild, onError shell commands in config's `watch` field with environment variables (208 tests passing) - Phase 8 COMPLETE!

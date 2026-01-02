@@ -31,6 +31,13 @@ const validatorSchema = z.object({
   frontmatterRequired: z.array(z.string()).optional(),
 });
 
+// Watch hooks schema (for watch mode event triggers)
+const watchHooksSchema = z.object({
+  onStart: z.array(z.string()).optional(),
+  onBuild: z.array(z.string()).optional(),
+  onError: z.array(z.string()).optional(),
+}).optional();
+
 // Replace operation schema
 const replacePatchSchema = patchBaseSchema.extend({
   op: z.literal("replace"),
@@ -231,6 +238,7 @@ const kustomarkConfigSchema = z.object({
   patches: z.array(patchSchema).optional(),
   onNoMatch: onNoMatchSchema.optional(),
   validators: z.array(validatorSchema).optional(),
+  watch: watchHooksSchema,
 });
 
 // Export TypeScript types derived from schemas
@@ -259,6 +267,7 @@ export type DeleteFilePatch = z.infer<typeof deleteFilePatchSchema>;
 export type MoveFilePatch = z.infer<typeof moveFilePatchSchema>;
 export type PatchValidation = z.infer<typeof patchValidationSchema>;
 export type Validator = z.infer<typeof validatorSchema>;
+export type WatchHooks = z.infer<typeof watchHooksSchema>;
 export type Patch = z.infer<typeof patchSchema>;
 export type KustomarkConfig = z.infer<typeof kustomarkConfigSchema>;
 
@@ -268,6 +277,7 @@ export {
   patchBaseSchema,
   patchValidationSchema,
   validatorSchema,
+  watchHooksSchema,
   replacePatchSchema,
   replaceRegexPatchSchema,
   removeSectionPatchSchema,

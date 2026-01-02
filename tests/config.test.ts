@@ -85,3 +85,77 @@ patches:
     expect(config.patches![5].op).toBe("append-to-section");
   });
 });
+
+describe("Watch Hooks Config", () => {
+  test("parses config with all watch hooks", () => {
+    const yaml = `
+apiVersion: kustomark/v1
+kind: Kustomization
+output: ./out
+resources:
+  - "*.md"
+watch:
+  onStart:
+    - "echo starting"
+  onBuild:
+    - "echo build done"
+    - "touch .build-complete"
+  onError:
+    - "notify-send failed"
+`;
+    const config = parseConfig(yaml);
+
+    expect(config.watch).toBeDefined();
+    expect(config.watch?.onStart).toEqual(["echo starting"]);
+    expect(config.watch?.onBuild).toEqual(["echo build done", "touch .build-complete"]);
+    expect(config.watch?.onError).toEqual(["notify-send failed"]);
+  });
+
+  test("parses config with partial watch hooks", () => {
+    const yaml = `
+apiVersion: kustomark/v1
+kind: Kustomization
+output: ./out
+resources:
+  - "*.md"
+watch:
+  onBuild:
+    - "echo done"
+`;
+    const config = parseConfig(yaml);
+
+    expect(config.watch).toBeDefined();
+    expect(config.watch?.onStart).toBeUndefined();
+    expect(config.watch?.onBuild).toEqual(["echo done"]);
+    expect(config.watch?.onError).toBeUndefined();
+  });
+
+  test("parses config without watch hooks", () => {
+    const yaml = `
+apiVersion: kustomark/v1
+kind: Kustomization
+output: ./out
+resources:
+  - "*.md"
+`;
+    const config = parseConfig(yaml);
+
+    expect(config.watch).toBeUndefined();
+  });
+
+  test("parses config with empty watch hooks", () => {
+    const yaml = `
+apiVersion: kustomark/v1
+kind: Kustomization
+output: ./out
+resources:
+  - "*.md"
+watch:
+  onBuild: []
+`;
+    const config = parseConfig(yaml);
+
+    expect(config.watch).toBeDefined();
+    expect(config.watch?.onBuild).toEqual([]);
+  });
+});

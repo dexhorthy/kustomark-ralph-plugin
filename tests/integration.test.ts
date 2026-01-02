@@ -1432,6 +1432,86 @@ resources:
       expect(firstEvent.event).toBeDefined();
       expect(firstEvent.timestamp).toBeDefined();
     });
+
+    test("watch command executes onStart hooks", async () => {
+      const baseDir = join(testDir, "watch-hooks-test");
+      await mkdir(baseDir, { recursive: true });
+
+      const startMarkerFile = join(baseDir, "start-marker.txt");
+      await writeFile(join(baseDir, "doc.md"), "# Doc\n\nContent.\n");
+      await writeFile(
+        join(baseDir, "kustomark.yaml"),
+        `apiVersion: kustomark/v1
+kind: Kustomization
+output: ./output
+resources:
+  - "*.md"
+watch:
+  onStart:
+    - "echo started > ${startMarkerFile}"
+`
+      );
+
+      // Start watch command
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "watch", baseDir, "--format=json"],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      // Wait for hooks to execute
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      proc.kill();
+
+      // Check that the onStart hook created the marker file
+      const { existsSync } = await import("fs");
+      expect(existsSync(startMarkerFile)).toBe(true);
+    });
+
+    test("watch command executes onBuild hooks with environment variables", async () => {
+      const baseDir = join(testDir, "watch-build-hooks-test");
+      await mkdir(baseDir, { recursive: true });
+
+      const buildMarkerFile = join(baseDir, "build-marker.txt");
+      await writeFile(join(baseDir, "doc.md"), "# Doc\n\nContent.\n");
+      await writeFile(
+        join(baseDir, "kustomark.yaml"),
+        `apiVersion: kustomark/v1
+kind: Kustomization
+output: ./output
+resources:
+  - "*.md"
+watch:
+  onBuild:
+    - "echo $KUSTOMARK_EVENT $KUSTOMARK_SUCCESS $KUSTOMARK_FILES_WRITTEN > ${buildMarkerFile}"
+`
+      );
+
+      // Start watch command
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "watch", baseDir, "--format=json"],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      // Wait for hooks to execute
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      proc.kill();
+
+      // Check that the onBuild hook created the marker file with env vars
+      const { existsSync } = await import("fs");
+      expect(existsSync(buildMarkerFile)).toBe(true);
+
+      const markerContent = await readFile(buildMarkerFile, "utf-8");
+      expect(markerContent).toContain("build");
+      expect(markerContent).toContain("true");
+    });
   });
 
   describe("Error Handling", () => {
