@@ -1684,6 +1684,7 @@ Commands:
   lint [path]      Check for common issues
   explain [path]   Show resolution chain and patch details
   watch [path]     Rebuild on file changes
+  lsp              Start Language Server Protocol server
 
 Options:
   --format=<text|json>  Output format (default: text)
@@ -1855,6 +1856,14 @@ async function main(): Promise<void> {
       case "watch": {
         await watch(configPath, options);
         // watch never returns (runs until SIGINT)
+        break;
+      }
+
+      case "lsp": {
+        // Start LSP server - import dynamically to avoid loading LSP deps unless needed
+        // The server starts listening when the module is imported
+        await import("../lsp/server.js");
+        // LSP server runs until connection closes
         break;
       }
 

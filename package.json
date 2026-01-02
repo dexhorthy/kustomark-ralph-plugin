@@ -19,6 +19,8 @@
     "github-slugger": "^2.0.0",
     "glob": "^10.3.10",
     "minimatch": "^10.1.1",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.12",
     "yaml": "^2.3.4",
     "zod": "^3.22.4",
     "zod-to-json-schema": "^3.25.1"

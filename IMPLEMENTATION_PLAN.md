@@ -39,7 +39,7 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 ## Current Status
 
 **All milestones complete!** M1-M4 plus deferred features implemented and tested:
-- 273 tests passing
+- 302 tests passing
 - TypeScript type checking passes
 - ESLint linting passes
 
@@ -120,6 +120,14 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
   - Cache clear, size reporting, and pruning APIs
   - Subdirectory-based storage for better filesystem performance
   - Unit tests for cache operations
+- [x] LSP server
+  - `kustomark lsp` command to start Language Server Protocol server
+  - Diagnostics: schema validation errors and lint warnings
+  - Hover information: documentation for all 22 patch operations
+  - Hover for patch keys (include, exclude, group, id, extends, onNoMatch)
+  - Hover for top-level config keys (apiVersion, kind, output, resources, patches, watch)
+  - Document synchronization for real-time validation
+  - Position finding for accurate error locations
 
 ## Progress Log
 
@@ -147,3 +155,4 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - Interactive debug mode implemented: `--debug` flag for step-through patch application with keyboard controls (233 tests passing)
 - Incremental builds implemented: `--incremental` flag with manifest-based change detection for faster rebuilds (252 tests passing)
 - Build cache implemented: `--cache` flag with SHA256-based caching of patch computation results (273 tests passing)
+- LSP server implemented: `kustomark lsp` command with diagnostics and hover information for IDE integration (302 tests passing)
