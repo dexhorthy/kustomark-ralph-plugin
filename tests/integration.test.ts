@@ -393,6 +393,91 @@ patches:
       expect(result.patches.applied).toBe(0);
       expect(result.patches.skipped).toBe(1);
     });
+
+    test("builds with --parallel flag", async () => {
+      // Setup with multiple files
+      const baseDir = join(testDir, "parallel-test");
+      const outputDir = join(testDir, "parallel-output");
+      await mkdir(baseDir, { recursive: true });
+      await mkdir(outputDir, { recursive: true });
+
+      // Create multiple source files
+      for (let i = 0; i < 5; i++) {
+        await writeFile(join(baseDir, `doc${i}.md`), `# Doc ${i}\n\nContent ${i}.\n`);
+      }
+
+      await writeFile(
+        join(baseDir, "kustomark.yaml"),
+        `apiVersion: kustomark/v1
+kind: Kustomization
+output: ${outputDir}
+resources:
+  - "*.md"
+patches:
+  - op: replace
+    old: "Content"
+    new: "Modified"
+`
+      );
+
+      // Run build with --parallel flag
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "build", baseDir, "--parallel", "--format=json"],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      const exitCode = await proc.exited;
+      const stdout = await new Response(proc.stdout).text();
+
+      expect(exitCode).toBe(0);
+
+      const result = JSON.parse(stdout);
+      expect(result.success).toBe(true);
+      expect(result.filesWritten).toBe(5);
+    });
+
+    test("builds with --parallel=2 flag (custom concurrency)", async () => {
+      const baseDir = join(testDir, "parallel-test-2");
+      const outputDir = join(testDir, "parallel-output-2");
+      await mkdir(baseDir, { recursive: true });
+      await mkdir(outputDir, { recursive: true });
+
+      for (let i = 0; i < 4; i++) {
+        await writeFile(join(baseDir, `file${i}.md`), `# File ${i}\n`);
+      }
+
+      await writeFile(
+        join(baseDir, "kustomark.yaml"),
+        `apiVersion: kustomark/v1
+kind: Kustomization
+output: ${outputDir}
+resources:
+  - "*.md"
+`
+      );
+
+      const proc = Bun.spawn(
+        ["bun", "run", "./src/cli/index.ts", "build", baseDir, "--parallel=2", "--format=json"],
+        {
+          cwd: process.cwd(),
+          stdout: "pipe",
+          stderr: "pipe",
+        }
+      );
+
+      const exitCode = await proc.exited;
+      const stdout = await new Response(proc.stdout).text();
+
+      expect(exitCode).toBe(0);
+
+      const result = JSON.parse(stdout);
+      expect(result.success).toBe(true);
+      expect(result.filesWritten).toBe(4);
+    });
   });
 
   describe("Diff Command", () => {

@@ -39,7 +39,7 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 ## Current Status
 
 **All milestones complete!** M1-M4 plus deferred features implemented and tested:
-- 218 tests passing
+- 220 tests passing
 - TypeScript type checking passes
 - ESLint linting passes
 
@@ -78,6 +78,11 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
   - `--enable-groups` and `--disable-groups` CLI flags for build and diff commands
   - Group filtering logic in patch application
   - Unit tests for group filtering
+- [x] Parallel builds (process files concurrently)
+  - `--parallel` and `--parallel=<n>` CLI flags for build and diff commands
+  - Concurrency-limited parallel processing utility
+  - Refactored build and diff commands for parallel file processing
+  - Integration tests for parallel builds
 
 ## Progress Log
 
@@ -99,3 +104,4 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - M4 Build stats implemented: --stats flag for build command with duration, files, patches, bytes, byOperation metrics (202 tests passing) - M4 COMPLETE!
 - Watch hooks implemented: onStart, onBuild, onError shell commands in config's `watch` field with environment variables (208 tests passing)
 - Patch groups implemented: `group` field on patches, --enable-groups/--disable-groups CLI flags for selective patch application (218 tests passing)
+- Parallel builds implemented: --parallel flag for concurrent file processing in build and diff commands (220 tests passing)

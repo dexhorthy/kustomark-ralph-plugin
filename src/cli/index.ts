@@ -77,6 +77,7 @@ interface CliOptions {
   debounce: number;
   // Build command options
   stats: boolean;
+  parallel: number; // 0 = sequential, >0 = concurrency limit
   // Patch group options
   enableGroups: string[];
   disableGroups: string[];
@@ -96,6 +97,7 @@ function parseArgs(args: string[]): {
     strict: false,
     debounce: 300,
     stats: false,
+    parallel: 0,
     enableGroups: [],
     disableGroups: [],
   };
@@ -147,6 +149,10 @@ function parseArgs(args: string[]): {
       options.debounce = parseInt(args[++i], 10) || 300;
     } else if (arg === "--stats") {
       options.stats = true;
+    } else if (arg === "--parallel") {
+      options.parallel = 4; // default concurrency
+    } else if (arg.startsWith("--parallel=")) {
+      options.parallel = parseInt(arg.slice("--parallel=".length), 10) || 4;
     } else if (arg.startsWith("--enable-groups=")) {
       options.enableGroups = arg.slice("--enable-groups=".length).split(",").filter(Boolean);
     } else if (arg === "--enable-groups" && i + 1 < args.length) {
@@ -249,6 +255,41 @@ async function getOutputFiles(outputDir: string): Promise<Set<string>> {
   return files;
 }
 
+// Parallel processing utility with concurrency limit
+async function processInParallel<T, R>(
+  items: T[],
+  processor: (item: T) => Promise<R>,
+  concurrency: number
+): Promise<R[]> {
+  if (concurrency <= 0) {
+    // Sequential processing
+    const results: R[] = [];
+    for (const item of items) {
+      results.push(await processor(item));
+    }
+    return results;
+  }
+
+  // Parallel processing with concurrency limit
+  const results: R[] = new Array(items.length);
+  let currentIndex = 0;
+
+  async function worker(): Promise<void> {
+    while (currentIndex < items.length) {
+      const index = currentIndex++;
+      results[index] = await processor(items[index]);
+    }
+  }
+
+  // Start workers up to concurrency limit
+  const workers = Array(Math.min(concurrency, items.length))
+    .fill(null)
+    .map(() => worker());
+
+  await Promise.all(workers);
+  return results;
+}
+
 // Build command implementation
 async function build(
   configPath: string,
@@ -309,10 +350,21 @@ async function build(
       disableGroups: options.disableGroups.length > 0 ? options.disableGroups : undefined,
     };
 
-    // Process each resource
-    for (const resource of processedResources) {
+    // Import minimatch once for stats tracking
+    const minimatchModule = options.stats ? await import("minimatch") : null;
+
+    // Define resource processor function
+    interface ResourceResult {
+      relativePath: string;
+      patchesApplied: number;
+      warnings: string[];
+      bytes: number;
+      eligiblePatches: number;
+      opCounts: Record<string, number>;
+    }
+
+    const processResource = async (resource: { relativePath: string; content: string }): Promise<ResourceResult> => {
       logger.verbose(`Processing ${resource.relativePath}`, 2);
-      filesProcessed++;
 
       // Apply content patches with group filtering
       const patchResult = applyPatches(
@@ -322,35 +374,27 @@ async function build(
         groupOptions
       );
 
-      result.patchesApplied += patchResult.applied;
-      result.warnings.push(...patchResult.warnings);
-
       // Track stats
-      if (options.stats) {
-        // Count eligible patches for this file and track by operation type
-        const { minimatch } = await import("minimatch");
-        let eligiblePatches = 0;
+      let eligiblePatches = 0;
+      const opCounts: Record<string, number> = {};
 
+      if (options.stats && minimatchModule) {
         for (const patch of patches) {
           if (!["copy-file", "rename-file", "delete-file", "move-file"].includes(patch.op)) {
-            // Check if patch applies to this file
             const include = patch.include || ["**/*"];
             const exclude = patch.exclude || [];
             const matchesInclude = include.some((pattern) =>
-              minimatch(resource.relativePath, pattern)
+              minimatchModule.minimatch(resource.relativePath, pattern)
             );
             const matchesExclude = exclude.some((pattern) =>
-              minimatch(resource.relativePath, pattern)
+              minimatchModule.minimatch(resource.relativePath, pattern)
             );
             if (matchesInclude && !matchesExclude) {
               eligiblePatches++;
-              byOperation[patch.op] = (byOperation[patch.op] || 0) + 1;
+              opCounts[patch.op] = (opCounts[patch.op] || 0) + 1;
             }
           }
         }
-
-        // Skipped = eligible - applied for this file
-        patchesSkipped += Math.max(0, eligiblePatches - patchResult.applied);
       }
 
       // Write output file
@@ -360,15 +404,42 @@ async function build(
       await mkdir(outputDirPath, { recursive: true });
       await writeFile(outputPath, patchResult.content, "utf-8");
 
-      // Track bytes
-      if (options.stats) {
-        totalBytes += Buffer.byteLength(patchResult.content, "utf-8");
-      }
-
-      writtenFiles.add(resource.relativePath);
-      result.filesWritten++;
+      const bytes = options.stats ? Buffer.byteLength(patchResult.content, "utf-8") : 0;
 
       logger.verbose(`  Wrote ${outputPath}`, 3);
+
+      return {
+        relativePath: resource.relativePath,
+        patchesApplied: patchResult.applied,
+        warnings: patchResult.warnings,
+        bytes,
+        eligiblePatches,
+        opCounts,
+      };
+    };
+
+    // Process resources (parallel or sequential based on --parallel flag)
+    const resourceResults = await processInParallel(
+      processedResources,
+      processResource,
+      options.parallel
+    );
+
+    // Aggregate results
+    for (const resourceResult of resourceResults) {
+      result.patchesApplied += resourceResult.patchesApplied;
+      result.warnings.push(...resourceResult.warnings);
+      writtenFiles.add(resourceResult.relativePath);
+      result.filesWritten++;
+      filesProcessed++;
+
+      if (options.stats) {
+        totalBytes += resourceResult.bytes;
+        patchesSkipped += Math.max(0, resourceResult.eligiblePatches - resourceResult.patchesApplied);
+        for (const [op, count] of Object.entries(resourceResult.opCounts)) {
+          byOperation[op] = (byOperation[op] || 0) + count;
+        }
+      }
     }
 
     // Clean up files not in source if --clean is set
@@ -449,8 +520,14 @@ async function diff(
       disableGroups: options.disableGroups.length > 0 ? options.disableGroups : undefined,
     };
 
-    // Process each resource
-    for (const resource of processedResources) {
+    // Define resource processor function for diff
+    interface DiffResourceResult {
+      relativePath: string;
+      fileResult: DiffFileResult | null;
+      hasChanges: boolean;
+    }
+
+    const processDiffResource = async (resource: { relativePath: string; content: string }): Promise<DiffResourceResult> => {
       logger.verbose(`Processing ${resource.relativePath}`, 2);
 
       // Apply content patches with group filtering
@@ -462,7 +539,6 @@ async function diff(
       );
 
       const outputPath = join(outputDir, resource.relativePath);
-      processedFiles.add(resource.relativePath);
 
       // Compare with existing file
       let existingContent = "";
@@ -478,7 +554,6 @@ async function diff(
       }
 
       if (fileStatus !== "unchanged") {
-        result.hasChanges = true;
         const fileDiff = Diff.createPatch(
           resource.relativePath,
           existingContent,
@@ -487,20 +562,45 @@ async function diff(
           "new"
         );
 
-        result.files.push({
-          path: resource.relativePath,
-          status: fileStatus,
-          diff: fileDiff,
-        });
-
-        if (options.format === "text") {
-          logger.info(`${fileStatus.toUpperCase()}: ${resource.relativePath}`);
-          if (options.verbose >= 1) {
-            console.log(fileDiff);
-          }
-        }
+        return {
+          relativePath: resource.relativePath,
+          fileResult: {
+            path: resource.relativePath,
+            status: fileStatus,
+            diff: fileDiff,
+          },
+          hasChanges: true,
+        };
       } else {
         logger.verbose(`  Unchanged: ${resource.relativePath}`, 3);
+        return {
+          relativePath: resource.relativePath,
+          fileResult: null,
+          hasChanges: false,
+        };
+      }
+    };
+
+    // Process resources (parallel or sequential based on --parallel flag)
+    const diffResults = await processInParallel(
+      processedResources,
+      processDiffResource,
+      options.parallel
+    );
+
+    // Aggregate results
+    for (const diffResult of diffResults) {
+      processedFiles.add(diffResult.relativePath);
+      if (diffResult.hasChanges && diffResult.fileResult) {
+        result.hasChanges = true;
+        result.files.push(diffResult.fileResult);
+
+        if (options.format === "text") {
+          logger.info(`${diffResult.fileResult.status.toUpperCase()}: ${diffResult.relativePath}`);
+          if (options.verbose >= 1) {
+            console.log(diffResult.fileResult.diff);
+          }
+        }
       }
     }
 
@@ -1063,6 +1163,7 @@ Options:
   --format=<text|json>  Output format (default: text)
   --clean               Remove files not in source (build only)
   --stats               Include build statistics (build only)
+  --parallel[=<n>]      Process files in parallel (default: 4 workers)
   --enable-groups=<g>   Only apply patches in these groups (comma-separated)
   --disable-groups=<g>  Skip patches in these groups (comma-separated)
   -v, -vv, -vvv         Verbose output (increasing levels)
@@ -1075,6 +1176,8 @@ Options:
 
 Examples:
   kustomark build ./my-project
+  kustomark build ./my-project --parallel
+  kustomark build ./my-project --parallel=8
   kustomark build ./my-project --enable-groups=production
   kustomark build ./my-project --disable-groups=debug,verbose
   kustomark diff ./my-project --format=json
