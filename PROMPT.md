@@ -1,3 +1,10 @@
+-1a. list issues from GitHub: `curl -s https://api.github.com/repos/dexhorthy/kustomark-ralph-plugin/issues | jq -r '.[] | "\(.number) \(.title)"'`
+
+-1b. compare with known-issues/ directory - if any GitHub issues aren't local, fetch and save:
+     `curl -s https://api.github.com/repos/dexhorthy/kustomark-ralph-plugin/issues/<NUMBER> | jq '{number, title, body}' > known-issues/<NUMBER>.json`
+
+-1c. TBD
+
 0a. familiarize yourself with specs/
 
 

@@ -4,6 +4,7 @@ import { existsSync } from "fs";
 import { readFile, writeFile, mkdir, readdir, rm, stat } from "fs/promises";
 import { join, dirname, resolve, relative } from "path";
 import * as Diff from "diff";
+import * as readline from "readline";
 import { loadConfigFile, generateJsonSchema } from "../core/config.js";
 import { resolveResources } from "../core/resources.js";
 import { applyPatches, resolveExtends, type GroupOptions } from "../core/patches.js";
@@ -69,6 +70,7 @@ interface CliOptions {
   // Init command options
   base?: string;
   output?: string;
+  interactive: boolean;
   // Lint command options
   strict: boolean;
   // Explain command options
@@ -94,6 +96,7 @@ function parseArgs(args: string[]): {
     clean: false,
     verbose: 0,
     quiet: false,
+    interactive: false,
     strict: false,
     debounce: 300,
     stats: false,
@@ -149,6 +152,8 @@ function parseArgs(args: string[]): {
       options.debounce = parseInt(args[++i], 10) || 300;
     } else if (arg === "--stats") {
       options.stats = true;
+    } else if (arg === "--interactive" || arg === "-i") {
+      options.interactive = true;
     } else if (arg === "--parallel") {
       options.parallel = 4; // default concurrency
     } else if (arg.startsWith("--parallel=")) {
@@ -764,6 +769,74 @@ async function validate(
 }
 
 // Init command implementation
+/**
+ * Prompt the user for input with a default value.
+ * Returns the user's input or the default if they press Enter.
+ */
+async function prompt(question: string, defaultValue: string = ""): Promise<string> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  const displayDefault = defaultValue ? ` (${defaultValue})` : "";
+
+  return new Promise((resolve) => {
+    rl.question(`${question}${displayDefault}: `, (answer) => {
+      rl.close();
+      resolve(answer.trim() || defaultValue);
+    });
+  });
+}
+
+/**
+ * Prompt the user for a yes/no confirmation.
+ * Returns true for yes, false for no.
+ */
+async function promptConfirm(question: string, defaultValue: boolean = false): Promise<boolean> {
+  const defaultHint = defaultValue ? "Y/n" : "y/N";
+  const answer = await prompt(`${question} [${defaultHint}]`);
+
+  if (!answer) return defaultValue;
+  return answer.toLowerCase().startsWith("y");
+}
+
+/**
+ * Run the interactive init wizard.
+ * Prompts the user for configuration options and returns them.
+ */
+async function runInteractiveInit(): Promise<{
+  output: string;
+  base?: string;
+  resources: string;
+  addExamplePatch: boolean;
+}> {
+  console.log("\n🔧 Kustomark Interactive Setup\n");
+
+  // Ask if this is an overlay (extends another config)
+  const isOverlay = await promptConfirm("Is this an overlay that extends another config?", false);
+
+  let base: string | undefined;
+  let resources = "*.md";
+
+  if (isOverlay) {
+    base = await prompt("Base config path (relative)", "../base");
+    console.log(`  → Will reference: ${base}`);
+  } else {
+    resources = await prompt("Resource glob pattern", "*.md");
+    console.log(`  → Will include: ${resources}`);
+  }
+
+  const output = await prompt("Output directory", "./output");
+  console.log(`  → Will output to: ${output}`);
+
+  const addExamplePatch = await promptConfirm("Add an example patch?", true);
+
+  console.log("");
+
+  return { output, base, resources, addExamplePatch };
+}
+
 async function init(
   targetPath: string,
   options: CliOptions
@@ -776,6 +849,21 @@ async function init(
   };
 
   try {
+    // Run interactive wizard if requested
+    let base = options.base;
+    let output = options.output || "./output";
+    let resources = "*.md";
+    let addExamplePatch = false;
+
+    if (options.interactive) {
+      const wizardResult = await runInteractiveInit();
+      base = wizardResult.base;
+      output = wizardResult.output;
+      resources = wizardResult.resources;
+      addExamplePatch = wizardResult.addExamplePatch;
+      result.type = base ? "overlay" : "base";
+    }
+
     const resolvedPath = resolve(targetPath);
     const configPath = join(resolvedPath, "kustomark.yaml");
     result.created = configPath;
@@ -791,25 +879,34 @@ async function init(
     // Generate config content
     let configContent: string;
 
-    if (options.base) {
+    // Build example patch if requested
+    const examplePatch = addExamplePatch
+      ? `
+  - op: replace
+    old: "example"
+    new: "replaced"
+    include:
+      - "**/*.md"
+`
+      : "";
+
+    if (base) {
       // Overlay config that references a base
-      const outputValue = options.output || "./output";
       configContent = `apiVersion: kustomark/v1
 kind: Kustomization
-output: ${outputValue}
+output: ${output}
 resources:
-  - ${options.base}
-patches: []
+  - ${base}
+patches:${examplePatch || " []"}
 `;
     } else {
       // Base config
-      const outputValue = options.output || "./output";
       configContent = `apiVersion: kustomark/v1
 kind: Kustomization
-output: ${outputValue}
+output: ${output}
 resources:
-  - "*.md"
-patches: []
+  - "${resources}"
+patches:${examplePatch || " []"}
 `;
     }
 
@@ -1172,6 +1269,7 @@ Options:
   -q                    Quiet mode (errors only)
   --base=<path>         Base config to extend (init only)
   --output=<path>       Output directory (init only)
+  -i, --interactive     Interactive setup wizard (init only)
   --strict              Treat warnings as errors (lint only)
   --file=<path>         Show lineage for specific file (explain only)
   --debounce=<ms>       Debounce delay in milliseconds (watch only, default: 300)
@@ -1185,6 +1283,7 @@ Examples:
   kustomark diff ./my-project --format=json
   kustomark validate ./my-project -v
   kustomark init ./overlays/team --base ../company
+  kustomark init ./my-project --interactive
   kustomark schema > kustomark.schema.json
   kustomark lint ./my-project --strict
   kustomark explain ./team --file skills/commit.md
