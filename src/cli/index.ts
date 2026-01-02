@@ -17,6 +17,17 @@ import {
   type ExplainResult,
   type FileLineageResult,
 } from "../core/explain.js";
+import {
+  analyzeChanges,
+  calculateHash,
+  calculatePatchesHash,
+  createManifest,
+  createManifestFile,
+  getManifestPath,
+  readManifest,
+  writeManifest,
+  type ManifestFile,
+} from "../core/incremental.js";
 
 // Types for CLI output
 interface BuildResult {
@@ -80,6 +91,7 @@ interface CliOptions {
   // Build command options
   stats: boolean;
   debug: boolean; // Step-through debug mode
+  incremental: boolean; // Only rebuild changed files
   parallel: number; // 0 = sequential, >0 = concurrency limit
   // Patch group options
   enableGroups: string[];
@@ -102,6 +114,7 @@ function parseArgs(args: string[]): {
     debounce: 300,
     stats: false,
     debug: false,
+    incremental: false,
     parallel: 0,
     enableGroups: [],
     disableGroups: [],
@@ -156,6 +169,8 @@ function parseArgs(args: string[]): {
       options.stats = true;
     } else if (arg === "--debug") {
       options.debug = true;
+    } else if (arg === "--incremental") {
+      options.incremental = true;
     } else if (arg === "--interactive" || arg === "-i") {
       options.interactive = true;
     } else if (arg === "--parallel") {
@@ -354,6 +369,45 @@ async function build(
     const writtenFiles = new Set<string>();
     const existingFiles = await getOutputFiles(outputDir);
 
+    // Incremental build support
+    let incrementalAnalysis: ReturnType<typeof analyzeChanges> | null = null;
+    let configHash = "";
+    let patchesHash = "";
+    const manifestFiles: ManifestFile[] = [];
+    let filesSkipped = 0;
+
+    if (options.incremental) {
+      // Calculate hashes for change detection
+      const configContent = await readFile(configPath, "utf-8");
+      configHash = calculateHash(configContent);
+      patchesHash = calculatePatchesHash(patches);
+
+      // Read existing manifest
+      const manifestPath = getManifestPath(outputDir);
+      const manifest = await readManifest(manifestPath);
+
+      // Analyze what needs to be rebuilt
+      incrementalAnalysis = analyzeChanges(
+        manifest,
+        configHash,
+        patchesHash,
+        processedResources
+      );
+
+      if (incrementalAnalysis.fullRebuildRequired) {
+        logger.verbose(
+          `Full rebuild required: config=${incrementalAnalysis.configChanged}, patches=${incrementalAnalysis.patchesChanged}`,
+          1
+        );
+      } else {
+        logger.verbose(
+          `Incremental build: ${incrementalAnalysis.filesToRebuild.length} to rebuild, ${incrementalAnalysis.filesToSkip.length} unchanged`,
+          1
+        );
+        filesSkipped = incrementalAnalysis.filesToSkip.length;
+      }
+    }
+
     // Build group options from CLI flags
     const groupOptions: GroupOptions = {
       enableGroups: options.enableGroups.length > 0 ? options.enableGroups : undefined,
@@ -371,6 +425,9 @@ async function build(
       bytes: number;
       eligiblePatches: number;
       opCounts: Record<string, number>;
+      // For incremental build manifest
+      sourceContent: string;
+      outputContent: string;
     }
 
     const processResource = async (resource: { relativePath: string; content: string }): Promise<ResourceResult> => {
@@ -425,6 +482,8 @@ async function build(
         bytes,
         eligiblePatches,
         opCounts,
+        sourceContent: resource.content,
+        outputContent: patchResult.content,
       };
     };
 
@@ -471,9 +530,21 @@ async function build(
         logger.info("Debug session ended early by user");
       }
     } else {
+      // Filter resources for incremental build
+      let resourcesToProcess = processedResources;
+      if (options.incremental && incrementalAnalysis && !incrementalAnalysis.fullRebuildRequired) {
+        const rebuildSet = new Set(incrementalAnalysis.filesToRebuild);
+        resourcesToProcess = processedResources.filter((r) => rebuildSet.has(r.relativePath));
+
+        // For skipped files, we need to add them to writtenFiles so they don't get cleaned
+        for (const skippedPath of incrementalAnalysis.filesToSkip) {
+          writtenFiles.add(skippedPath);
+        }
+      }
+
       // Normal mode: use parallel processing
       const resourceResults = await processInParallel(
-        processedResources,
+        resourcesToProcess,
         processResource,
         options.parallel
       );
@@ -493,6 +564,33 @@ async function build(
             byOperation[op] = (byOperation[op] || 0) + count;
           }
         }
+
+        // Track manifest entry for incremental builds
+        if (options.incremental) {
+          manifestFiles.push(
+            createManifestFile(
+              resourceResult.relativePath,
+              resourceResult.relativePath,
+              resourceResult.sourceContent,
+              resourceResult.outputContent,
+              resourceResult.patchesApplied
+            )
+          );
+        }
+      }
+
+      // For incremental builds, add entries for skipped files from old manifest
+      if (options.incremental && incrementalAnalysis && !incrementalAnalysis.fullRebuildRequired) {
+        const manifestPath = getManifestPath(outputDir);
+        const oldManifest = await readManifest(manifestPath);
+        if (oldManifest) {
+          for (const skippedPath of incrementalAnalysis.filesToSkip) {
+            const oldEntry = oldManifest.files.find((f) => f.source === skippedPath);
+            if (oldEntry) {
+              manifestFiles.push(oldEntry);
+            }
+          }
+        }
       }
     }
 
@@ -505,6 +603,21 @@ async function build(
           logger.verbose(`  Deleted ${filePath}`, 2);
         }
       }
+    }
+
+    // Write incremental build manifest
+    if (options.incremental && manifestFiles.length > 0) {
+      // Calculate hashes if not already done (for full rebuilds)
+      if (!configHash) {
+        const configContent = await readFile(configPath, "utf-8");
+        configHash = calculateHash(configContent);
+        patchesHash = calculatePatchesHash(patches);
+      }
+
+      const manifestPath = getManifestPath(outputDir);
+      const manifest = createManifest(configHash, patchesHash, manifestFiles);
+      await writeManifest(manifestPath, manifest);
+      logger.verbose(`Wrote incremental build manifest to ${manifestPath}`, 2);
     }
 
     result.success = true;
@@ -523,9 +636,15 @@ async function build(
       logger.warn(warning);
     }
 
-    logger.info(
-      `Build complete: ${result.filesWritten} files written, ${result.patchesApplied} patches applied`
-    );
+    if (options.incremental && filesSkipped > 0) {
+      logger.info(
+        `Build complete: ${result.filesWritten} files written, ${filesSkipped} unchanged, ${result.patchesApplied} patches applied`
+      );
+    } else {
+      logger.info(
+        `Build complete: ${result.filesWritten} files written, ${result.patchesApplied} patches applied`
+      );
+    }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     logger.error(errorMsg);
@@ -1506,6 +1625,7 @@ Options:
   --clean               Remove files not in source (build only)
   --stats               Include build statistics (build only)
   --debug               Step-through debug mode (build only)
+  --incremental         Only rebuild changed files (build only)
   --parallel[=<n>]      Process files in parallel (default: 4 workers)
   --enable-groups=<g>   Only apply patches in these groups (comma-separated)
   --disable-groups=<g>  Skip patches in these groups (comma-separated)
@@ -1523,6 +1643,7 @@ Examples:
   kustomark build ./my-project --parallel
   kustomark build ./my-project --parallel=8
   kustomark build ./my-project --debug
+  kustomark build ./my-project --incremental
   kustomark build ./my-project --enable-groups=production
   kustomark build ./my-project --disable-groups=debug,verbose
   kustomark diff ./my-project --format=json

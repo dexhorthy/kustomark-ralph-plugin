@@ -39,7 +39,7 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 ## Current Status
 
 **All milestones complete!** M1-M4 plus deferred features implemented and tested:
-- 233 tests passing
+- 252 tests passing
 - TypeScript type checking passes
 - ESLint linting passes
 
@@ -104,6 +104,14 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
   - Diff preview shows what patch would change
   - Summary at end shows applied, skipped, and remaining patches
   - Forces sequential file processing in debug mode
+- [x] Incremental builds
+  - `--incremental` flag for build command
+  - Build manifest (.kustomark.manifest.yaml) tracks file hashes
+  - Detects config/patches changes for full rebuild
+  - Only rebuilds files whose source content has changed
+  - Tracks new, modified, and deleted files
+  - SHA256 hashing for change detection
+  - Unit tests for manifest and change analysis
 
 ## Progress Log
 
@@ -129,3 +137,4 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - Patch inheritance implemented: `id` and `extends` fields for DRY patch definitions with inheritance resolution (233 tests passing)
 - Interactive init wizard implemented: `--interactive` flag for prompt-based config setup (233 tests passing)
 - Interactive debug mode implemented: `--debug` flag for step-through patch application with keyboard controls (233 tests passing)
+- Incremental builds implemented: `--incremental` flag with manifest-based change detection for faster rebuilds (252 tests passing)
