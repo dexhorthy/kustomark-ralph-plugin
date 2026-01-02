@@ -3,6 +3,7 @@ import GithubSlugger from "github-slugger";
 import yaml from "yaml";
 import type {
   Patch,
+  OpPatch,
   ReplacePatch,
   ReplaceRegexPatch,
   RemoveSectionPatch,
@@ -152,7 +153,7 @@ function getSectionEndLine(
 /**
  * Check if a patch should be applied to a given file based on include/exclude patterns.
  */
-export function shouldApplyPatch(patch: Patch, filePath: string): boolean {
+export function shouldApplyPatch(patch: OpPatch, filePath: string): boolean {
   const { include, exclude } = patch;
 
   // If include patterns are specified, file must match at least one
@@ -1093,7 +1094,7 @@ function applyChangeSectionLevel(
  */
 function applySinglePatch(
   content: string,
-  patch: Patch,
+  patch: OpPatch,
   warnings: string[],
   filePath: string
 ): { content: string; applied: boolean } {
@@ -1142,7 +1143,7 @@ function applySinglePatch(
     default: {
       // TypeScript exhaustiveness check
       const _exhaustive: never = patch;
-      throw new Error(`Unknown patch operation: ${(_exhaustive as Patch).op}`);
+      throw new Error(`Unknown patch operation: ${(_exhaustive as OpPatch).op}`);
     }
   }
 }
@@ -1206,13 +1207,95 @@ export interface GroupOptions {
 }
 
 /**
+ * Resolve patch inheritance by processing `extends` references.
+ * Patches with an `extends` field will inherit properties from the referenced base patch.
+ * The extending patch's properties take precedence over the base patch's properties.
+ *
+ * @param patches - Array of patches to resolve
+ * @returns Array of resolved patches with inheritance applied (all with explicit op)
+ * @throws Error if a circular reference or missing base patch is detected
+ */
+export function resolveExtends(patches: Patch[]): OpPatch[] {
+  // Build a map of patches by ID
+  const patchById = new Map<string, Patch>();
+  for (const patch of patches) {
+    if (patch.id) {
+      if (patchById.has(patch.id)) {
+        throw new Error(`Duplicate patch id: "${patch.id}"`);
+      }
+      patchById.set(patch.id, patch);
+    }
+  }
+
+  // Resolve each patch
+  const resolved: OpPatch[] = [];
+
+  function resolvePatch(patch: Patch, visited: Set<string> = new Set()): OpPatch {
+    // If patch has op and no extends, it's already an OpPatch
+    if (!patch.extends && "op" in patch) {
+      return patch as OpPatch;
+    }
+
+    // If patch has op but also extends, we still need to resolve
+    if (!patch.extends) {
+      // This shouldn't happen - a patch without extends must have op
+      throw new Error("Patch without extends must have an op field");
+    }
+
+    const baseId = patch.extends;
+
+    // Check for circular reference
+    if (visited.has(baseId)) {
+      throw new Error(`Circular patch inheritance detected: "${baseId}"`);
+    }
+
+    // Check if base patch exists
+    const basePatch = patchById.get(baseId);
+    if (!basePatch) {
+      throw new Error(`Patch extends unknown id: "${baseId}"`);
+    }
+
+    // Recursively resolve the base patch
+    visited.add(baseId);
+    const resolvedBase = resolvePatch(basePatch, visited);
+
+    // Merge: base properties + extending patch properties (extending takes precedence)
+    // We need to handle this carefully due to the discriminated union on `op`
+    const merged = { ...resolvedBase } as Record<string, unknown>;
+
+    // Copy over all properties from the extending patch, except `extends`
+    for (const [key, value] of Object.entries(patch)) {
+      if (key !== "extends" && value !== undefined) {
+        merged[key] = value;
+      }
+    }
+
+    // Arrays should be replaced, not merged (include/exclude)
+    if (patch.include !== undefined) {
+      merged.include = patch.include;
+    }
+    if (patch.exclude !== undefined) {
+      merged.exclude = patch.exclude;
+    }
+
+    return merged as OpPatch;
+  }
+
+  for (const patch of patches) {
+    resolved.push(resolvePatch(patch));
+  }
+
+  return resolved;
+}
+
+/**
  * Check if a patch should be applied based on group filtering.
  *
  * @param patch - The patch to check
  * @param groupOptions - Group filtering options
  * @returns true if the patch should be applied based on group rules
  */
-function shouldApplyByGroup(patch: Patch, groupOptions?: GroupOptions): boolean {
+function shouldApplyByGroup(patch: OpPatch, groupOptions?: GroupOptions): boolean {
   if (!groupOptions) return true;
 
   const { enableGroups, disableGroups } = groupOptions;
@@ -1255,7 +1338,10 @@ export function applyPatches(
   let applied = 0;
   const warnings: string[] = [];
 
-  for (const patch of patches) {
+  // Resolve patch inheritance before applying
+  const resolvedPatches = resolveExtends(patches);
+
+  for (const patch of resolvedPatches) {
     // Check if patch should be applied to this file
     if (!shouldApplyPatch(patch, filePath)) {
       continue;

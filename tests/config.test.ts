@@ -208,3 +208,78 @@ patches:
     expect(config.patches![0].group).toBeUndefined();
   });
 });
+
+describe("Patch Inheritance Config", () => {
+  test("parses patches with id field", () => {
+    const yaml = `
+apiVersion: kustomark/v1
+kind: Kustomization
+output: ./out
+resources:
+  - "*.md"
+patches:
+  - id: my-base-patch
+    op: replace
+    old: "foo"
+    new: "bar"
+`;
+    const config = parseConfig(yaml);
+
+    expect(config.patches).toBeDefined();
+    expect(config.patches![0].id).toBe("my-base-patch");
+  });
+
+  test("parses patches with extends field", () => {
+    const yaml = `
+apiVersion: kustomark/v1
+kind: Kustomization
+output: ./out
+resources:
+  - "*.md"
+patches:
+  - id: base
+    op: replace
+    old: "foo"
+    new: "bar"
+  - extends: base
+    old: "baz"
+    new: "qux"
+`;
+    const config = parseConfig(yaml);
+
+    expect(config.patches).toBeDefined();
+    expect(config.patches).toHaveLength(2);
+    expect(config.patches![0].id).toBe("base");
+    expect(config.patches![1].extends).toBe("base");
+  });
+
+  test("parses patches with both id and extends", () => {
+    const yaml = `
+apiVersion: kustomark/v1
+kind: Kustomization
+output: ./out
+resources:
+  - "*.md"
+patches:
+  - id: grandparent
+    op: replace
+    old: "a"
+    new: "b"
+  - id: parent
+    extends: grandparent
+    old: "c"
+    new: "d"
+  - extends: parent
+    old: "e"
+    new: "f"
+`;
+    const config = parseConfig(yaml);
+
+    expect(config.patches).toBeDefined();
+    expect(config.patches).toHaveLength(3);
+    expect(config.patches![0].id).toBe("grandparent");
+    expect(config.patches![1].id).toBe("parent");
+    expect(config.patches![1].extends).toBe("grandparent");
+    expect(config.patches![2].extends).toBe("parent");
+  });
+});

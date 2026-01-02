@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { applyPatches } from "../src/core/patches.js";
+import { applyPatches, resolveExtends } from "../src/core/patches.js";
 import type { Patch } from "../src/core/config.js";
 
 describe("Patch Operations", () => {
@@ -1191,5 +1191,132 @@ describe("Patch Groups", () => {
 
     expect(result.content).toBe("FOO BAR");
     expect(result.applied).toBe(2);
+  });
+});
+
+describe("Patch Inheritance", () => {
+  test("patch with extends inherits properties from base patch", () => {
+    const content = "hello world";
+    const patches: Patch[] = [
+      { id: "base", op: "replace", old: "hello", new: "hi" },
+      { extends: "base", old: "world", new: "there" } as Patch,
+    ];
+
+    const result = applyPatches(content, patches, "test.md");
+
+    // First patch replaces "hello" -> "hi"
+    // Second patch inherits op: "replace" and replaces "world" -> "there"
+    expect(result.content).toBe("hi there");
+    expect(result.applied).toBe(2);
+  });
+
+  test("extending patch overrides base properties", () => {
+    const content = "foo bar baz";
+    const patches: Patch[] = [
+      { id: "base", op: "replace", old: "foo", new: "FOO", include: ["*.txt"] },
+      { extends: "base", old: "bar", new: "BAR", include: ["*.md"] } as Patch,
+    ];
+
+    const result = applyPatches(content, patches, "test.md");
+
+    // First patch doesn't apply (include is *.txt)
+    // Second patch applies (include overridden to *.md)
+    expect(result.content).toBe("foo BAR baz");
+    expect(result.applied).toBe(1);
+  });
+
+  test("inherits include/exclude patterns from base", () => {
+    const content = "foo bar";
+    const patches: Patch[] = [
+      { id: "base", op: "replace", old: "foo", new: "FOO", include: ["docs/**/*.md"] },
+      { extends: "base", old: "bar", new: "BAR" } as Patch,
+    ];
+
+    // File doesn't match include pattern
+    const result = applyPatches(content, patches, "test.md");
+
+    expect(result.content).toBe("foo bar");
+    expect(result.applied).toBe(0);
+  });
+
+  test("inherits group from base patch", () => {
+    const content = "foo bar";
+    const patches: Patch[] = [
+      { id: "base", op: "replace", old: "foo", new: "FOO", group: "production" },
+      { extends: "base", old: "bar", new: "BAR" } as Patch,
+    ];
+
+    const result = applyPatches(content, patches, "test.md", { disableGroups: ["production"] });
+
+    // Both patches have group "production" (second inherits it), both skipped
+    expect(result.content).toBe("foo bar");
+    expect(result.applied).toBe(0);
+  });
+
+  test("extending patch can override group", () => {
+    const content = "foo bar";
+    const patches: Patch[] = [
+      { id: "base", op: "replace", old: "foo", new: "FOO", group: "production" },
+      { extends: "base", old: "bar", new: "BAR", group: "development" } as Patch,
+    ];
+
+    const result = applyPatches(content, patches, "test.md", { disableGroups: ["production"] });
+
+    // First patch skipped (production), second applied (development)
+    expect(result.content).toBe("foo BAR");
+    expect(result.applied).toBe(1);
+  });
+
+  test("throws error for unknown extends id", () => {
+    const patches: Patch[] = [
+      { extends: "nonexistent", op: "replace", old: "foo", new: "bar" } as Patch,
+    ];
+
+    expect(() => resolveExtends(patches)).toThrow('Patch extends unknown id: "nonexistent"');
+  });
+
+  test("throws error for circular inheritance", () => {
+    const patches: Patch[] = [
+      { id: "a", extends: "b", op: "replace", old: "foo", new: "bar" } as Patch,
+      { id: "b", extends: "a", op: "replace", old: "baz", new: "qux" } as Patch,
+    ];
+
+    expect(() => resolveExtends(patches)).toThrow("Circular patch inheritance detected");
+  });
+
+  test("throws error for duplicate patch ids", () => {
+    const patches: Patch[] = [
+      { id: "dup", op: "replace", old: "foo", new: "bar" },
+      { id: "dup", op: "replace", old: "baz", new: "qux" },
+    ];
+
+    expect(() => resolveExtends(patches)).toThrow('Duplicate patch id: "dup"');
+  });
+
+  test("supports chain of extends", () => {
+    const content = "aaa bbb ccc";
+    const patches: Patch[] = [
+      { id: "base", op: "replace", old: "aaa", new: "AAA", group: "test" },
+      { id: "middle", extends: "base", old: "bbb", new: "BBB" } as Patch,
+      { extends: "middle", old: "ccc", new: "CCC" } as Patch,
+    ];
+
+    const result = applyPatches(content, patches, "test.md");
+
+    expect(result.content).toBe("AAA BBB CCC");
+    expect(result.applied).toBe(3);
+  });
+
+  test("resolveExtends returns patches unchanged when no extends", () => {
+    const patches: Patch[] = [
+      { op: "replace", old: "foo", new: "bar" },
+      { op: "replace", old: "baz", new: "qux" },
+    ];
+
+    const resolved = resolveExtends(patches);
+
+    expect(resolved).toHaveLength(2);
+    expect(resolved[0].op).toBe("replace");
+    expect(resolved[1].op).toBe("replace");
   });
 });

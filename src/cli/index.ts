@@ -6,7 +6,7 @@ import { join, dirname, resolve, relative } from "path";
 import * as Diff from "diff";
 import { loadConfigFile, generateJsonSchema } from "../core/config.js";
 import { resolveResources } from "../core/resources.js";
-import { applyPatches, type GroupOptions } from "../core/patches.js";
+import { applyPatches, resolveExtends, type GroupOptions } from "../core/patches.js";
 import { runGlobalValidators, type ValidationError } from "../core/validation.js";
 import { applyFileOperations, applyFileOperationResults } from "../core/file-operations.js";
 import { lintConfig, type LintResult } from "../core/lint.js";
@@ -323,7 +323,8 @@ async function build(
     logger.verbose(`Output directory: ${outputDir}`, 1);
 
     // Apply file operations first (copy, rename, delete, move)
-    const patches = config.patches || [];
+    // Resolve patch inheritance first
+    const patches = config.patches ? resolveExtends(config.patches) : [];
     const fileOpsResult = applyFileOperations(patches, resources);
     const processedResources = applyFileOperationResults(resources, fileOpsResult);
 
@@ -505,7 +506,8 @@ async function diff(
     logger.verbose(`Output directory: ${outputDir}`, 1);
 
     // Apply file operations first (copy, rename, delete, move)
-    const patches = config.patches || [];
+    // Resolve patch inheritance first
+    const patches = config.patches ? resolveExtends(config.patches) : [];
     const fileOpsResult = applyFileOperations(patches, resources);
     const processedResources = applyFileOperationResults(resources, fileOpsResult);
 

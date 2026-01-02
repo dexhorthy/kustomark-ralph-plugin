@@ -1,6 +1,7 @@
 import { dirname, join, resolve, relative } from "path";
 import { loadConfigFile } from "./config.js";
 import { resolveResources } from "./resources.js";
+import { resolveExtends } from "./patches.js";
 
 /**
  * A config in the resolution chain
@@ -211,8 +212,9 @@ async function findPatchesForFile(
     // Then check this config's patches
     if (config.patches) {
       const { minimatch } = await import("minimatch");
+      const resolvedPatches = resolveExtends(config.patches);
 
-      for (const patch of config.patches) {
+      for (const patch of resolvedPatches) {
         const include = patch.include || ["**/*"];
         const exclude = patch.exclude || [];
 

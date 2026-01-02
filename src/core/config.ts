@@ -15,6 +15,8 @@ const patchValidationSchema = z.object({
 }).optional();
 
 const patchBaseSchema = z.object({
+  id: z.string().optional(),
+  extends: z.string().optional(),
   include: z.array(z.string()).optional(),
   exclude: z.array(z.string()).optional(),
   onNoMatch: onNoMatchSchema.optional(),
@@ -204,8 +206,8 @@ const moveFilePatchSchema = patchBaseSchema.extend({
   dest: z.string(),
 });
 
-// Union of all patch operation schemas
-const patchSchema = z.discriminatedUnion("op", [
+// Union of all patch operation schemas with explicit op
+const opPatchSchema = z.discriminatedUnion("op", [
   replacePatchSchema,
   replaceRegexPatchSchema,
   removeSectionPatchSchema,
@@ -229,6 +231,46 @@ const patchSchema = z.discriminatedUnion("op", [
   deleteFilePatchSchema,
   moveFilePatchSchema,
 ]);
+
+// Extending patch schema - allows patches that inherit from a base patch via extends
+// These patches may not have an explicit op since they inherit it from the base
+const extendingPatchSchema = patchBaseSchema.extend({
+  extends: z.string(),
+  // Allow any operation-specific fields to be overridden
+  // Replace fields
+  old: z.string().optional(),
+  new: z.string().optional(),
+  // Replace-regex fields
+  pattern: z.string().optional(),
+  replacement: z.string().optional(),
+  flags: z.string().optional(),
+  // Section fields
+  content: z.string().optional(),
+  includeChildren: z.boolean().optional(),
+  // Line operation fields
+  match: z.string().optional(),
+  regex: z.boolean().optional(),
+  // Between operation fields
+  start: z.string().optional(),
+  end: z.string().optional(),
+  inclusive: z.boolean().optional(),
+  // Move-section fields
+  after: z.string().optional(),
+  before: z.string().optional(),
+  // Change-section-level fields
+  delta: z.number().optional(),
+  // File operation fields
+  src: z.string().optional(),
+  dest: z.string().optional(),
+  rename: z.string().optional(),
+  // Frontmatter fields
+  key: z.string().optional(),
+  value: z.union([z.string(), z.number(), z.boolean(), z.array(z.unknown()), z.record(z.unknown())]).optional(),
+  values: z.record(z.unknown()).optional(),
+}).passthrough();
+
+// Combined patch schema: either a full patch with op, or an extending patch without op
+const patchSchema = z.union([opPatchSchema, extendingPatchSchema]);
 
 // Main kustomark configuration schema
 const kustomarkConfigSchema = z.object({
@@ -269,6 +311,8 @@ export type MoveFilePatch = z.infer<typeof moveFilePatchSchema>;
 export type PatchValidation = z.infer<typeof patchValidationSchema>;
 export type Validator = z.infer<typeof validatorSchema>;
 export type WatchHooks = z.infer<typeof watchHooksSchema>;
+export type ExtendingPatch = z.infer<typeof extendingPatchSchema>;
+export type OpPatch = z.infer<typeof opPatchSchema>;
 export type Patch = z.infer<typeof patchSchema>;
 export type KustomarkConfig = z.infer<typeof kustomarkConfigSchema>;
 
@@ -301,6 +345,8 @@ export {
   renameFilePatchSchema,
   deleteFilePatchSchema,
   moveFilePatchSchema,
+  opPatchSchema,
+  extendingPatchSchema,
   patchSchema,
   kustomarkConfigSchema,
 };

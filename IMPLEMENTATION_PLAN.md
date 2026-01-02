@@ -83,6 +83,13 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
   - Concurrency-limited parallel processing utility
   - Refactored build and diff commands for parallel file processing
   - Integration tests for parallel builds
+- [x] Patch inheritance (extend by ID)
+  - `id` and `extends` fields added to patch schema
+  - `resolveExtends()` function to resolve inheritance at runtime
+  - Support for chained inheritance (A extends B extends C)
+  - Duplicate ID and circular reference detection with error messages
+  - Extending patches can omit `op` when inheriting from base
+  - Unit tests for patch inheritance resolution
 
 ## Progress Log
 
@@ -105,3 +112,4 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - Watch hooks implemented: onStart, onBuild, onError shell commands in config's `watch` field with environment variables (208 tests passing)
 - Patch groups implemented: `group` field on patches, --enable-groups/--disable-groups CLI flags for selective patch application (218 tests passing)
 - Parallel builds implemented: --parallel flag for concurrent file processing in build and diff commands (220 tests passing)
+- Patch inheritance implemented: `id` and `extends` fields for DRY patch definitions with inheritance resolution (233 tests passing)
