@@ -28,6 +28,10 @@ import {
   writeManifest,
   type ManifestFile,
 } from "../core/incremental.js";
+import {
+  BuildCache,
+  calculatePatchesHashForCache,
+} from "../core/cache.js";
 
 // Types for CLI output
 interface BuildResult {
@@ -92,6 +96,7 @@ interface CliOptions {
   stats: boolean;
   debug: boolean; // Step-through debug mode
   incremental: boolean; // Only rebuild changed files
+  cache: boolean; // Cache patch computation results
   parallel: number; // 0 = sequential, >0 = concurrency limit
   // Patch group options
   enableGroups: string[];
@@ -115,6 +120,7 @@ function parseArgs(args: string[]): {
     stats: false,
     debug: false,
     incremental: false,
+    cache: false,
     parallel: 0,
     enableGroups: [],
     disableGroups: [],
@@ -171,6 +177,8 @@ function parseArgs(args: string[]): {
       options.debug = true;
     } else if (arg === "--incremental") {
       options.incremental = true;
+    } else if (arg === "--cache") {
+      options.cache = true;
     } else if (arg === "--interactive" || arg === "-i") {
       options.interactive = true;
     } else if (arg === "--parallel") {
@@ -414,6 +422,18 @@ async function build(
       disableGroups: options.disableGroups.length > 0 ? options.disableGroups : undefined,
     };
 
+    // Build cache support
+    let buildCache: BuildCache | null = null;
+    let cachePatchesHash = "";
+    let cacheHits = 0;
+
+    if (options.cache) {
+      buildCache = new BuildCache(outputDir);
+      await buildCache.init();
+      cachePatchesHash = calculatePatchesHashForCache(patches);
+      logger.verbose(`Build cache enabled in ${outputDir}/.kustomark-cache/`, 1);
+    }
+
     // Import minimatch once for stats tracking
     const minimatchModule = options.stats ? await import("minimatch") : null;
 
@@ -428,18 +448,56 @@ async function build(
       // For incremental build manifest
       sourceContent: string;
       outputContent: string;
+      // For cache stats
+      cacheHit: boolean;
     }
 
     const processResource = async (resource: { relativePath: string; content: string }): Promise<ResourceResult> => {
       logger.verbose(`Processing ${resource.relativePath}`, 2);
 
-      // Apply content patches with group filtering
-      const patchResult = applyPatches(
-        resource.content,
-        patches,
-        resource.relativePath,
-        groupOptions
-      );
+      let outputContent: string;
+      let patchesApplied = 0;
+      let warnings: string[] = [];
+      let cacheHit = false;
+
+      // Check cache first
+      if (buildCache) {
+        const cacheKey = buildCache.generateCacheKey(resource.content, cachePatchesHash, resource.relativePath);
+        const cachedContent = await buildCache.get(cacheKey);
+
+        if (cachedContent !== null) {
+          outputContent = cachedContent;
+          cacheHit = true;
+          logger.verbose(`  Cache hit for ${resource.relativePath}`, 2);
+        } else {
+          // Apply content patches with group filtering
+          const patchResult = applyPatches(
+            resource.content,
+            patches,
+            resource.relativePath,
+            groupOptions
+          );
+          outputContent = patchResult.content;
+          patchesApplied = patchResult.applied;
+          warnings = patchResult.warnings;
+
+          // Store in cache
+          const sourceHash = calculateHash(resource.content);
+          await buildCache.set(cacheKey, outputContent, sourceHash, cachePatchesHash);
+          logger.verbose(`  Cached result for ${resource.relativePath}`, 3);
+        }
+      } else {
+        // Apply content patches with group filtering (no cache)
+        const patchResult = applyPatches(
+          resource.content,
+          patches,
+          resource.relativePath,
+          groupOptions
+        );
+        outputContent = patchResult.content;
+        patchesApplied = patchResult.applied;
+        warnings = patchResult.warnings;
+      }
 
       // Track stats
       let eligiblePatches = 0;
@@ -469,21 +527,22 @@ async function build(
       const outputDirPath = dirname(outputPath);
 
       await mkdir(outputDirPath, { recursive: true });
-      await writeFile(outputPath, patchResult.content, "utf-8");
+      await writeFile(outputPath, outputContent, "utf-8");
 
-      const bytes = options.stats ? Buffer.byteLength(patchResult.content, "utf-8") : 0;
+      const bytes = options.stats ? Buffer.byteLength(outputContent, "utf-8") : 0;
 
       logger.verbose(`  Wrote ${outputPath}`, 3);
 
       return {
         relativePath: resource.relativePath,
-        patchesApplied: patchResult.applied,
-        warnings: patchResult.warnings,
+        patchesApplied,
+        warnings,
         bytes,
         eligiblePatches,
         opCounts,
         sourceContent: resource.content,
-        outputContent: patchResult.content,
+        outputContent,
+        cacheHit,
       };
     };
 
@@ -556,6 +615,11 @@ async function build(
         writtenFiles.add(resourceResult.relativePath);
         result.filesWritten++;
         filesProcessed++;
+
+        // Track cache hits
+        if (resourceResult.cacheHit) {
+          cacheHits++;
+        }
 
         if (options.stats) {
           totalBytes += resourceResult.bytes;
@@ -636,15 +700,16 @@ async function build(
       logger.warn(warning);
     }
 
+    // Build log message with relevant stats
+    const logParts = [`Build complete: ${result.filesWritten} files written`];
     if (options.incremental && filesSkipped > 0) {
-      logger.info(
-        `Build complete: ${result.filesWritten} files written, ${filesSkipped} unchanged, ${result.patchesApplied} patches applied`
-      );
-    } else {
-      logger.info(
-        `Build complete: ${result.filesWritten} files written, ${result.patchesApplied} patches applied`
-      );
+      logParts.push(`${filesSkipped} unchanged`);
     }
+    if (options.cache && cacheHits > 0) {
+      logParts.push(`${cacheHits} cache hits`);
+    }
+    logParts.push(`${result.patchesApplied} patches applied`);
+    logger.info(logParts.join(", "));
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     logger.error(errorMsg);
@@ -1626,6 +1691,7 @@ Options:
   --stats               Include build statistics (build only)
   --debug               Step-through debug mode (build only)
   --incremental         Only rebuild changed files (build only)
+  --cache               Cache patch computation results (build only)
   --parallel[=<n>]      Process files in parallel (default: 4 workers)
   --enable-groups=<g>   Only apply patches in these groups (comma-separated)
   --disable-groups=<g>  Skip patches in these groups (comma-separated)
@@ -1644,6 +1710,7 @@ Examples:
   kustomark build ./my-project --parallel=8
   kustomark build ./my-project --debug
   kustomark build ./my-project --incremental
+  kustomark build ./my-project --cache
   kustomark build ./my-project --enable-groups=production
   kustomark build ./my-project --disable-groups=debug,verbose
   kustomark diff ./my-project --format=json

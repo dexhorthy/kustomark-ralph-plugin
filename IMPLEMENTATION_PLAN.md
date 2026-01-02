@@ -39,7 +39,7 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 ## Current Status
 
 **All milestones complete!** M1-M4 plus deferred features implemented and tested:
-- 252 tests passing
+- 273 tests passing
 - TypeScript type checking passes
 - ESLint linting passes
 
@@ -112,6 +112,14 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
   - Tracks new, modified, and deleted files
   - SHA256 hashing for change detection
   - Unit tests for manifest and change analysis
+- [x] Build cache
+  - `--cache` flag for build command
+  - Caches patch computation results in .kustomark-cache/ directory
+  - SHA256-based cache keys from source content + patches hash + file path
+  - Cache hit/miss tracking and reporting
+  - Cache clear, size reporting, and pruning APIs
+  - Subdirectory-based storage for better filesystem performance
+  - Unit tests for cache operations
 
 ## Progress Log
 
@@ -138,3 +146,4 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - Interactive init wizard implemented: `--interactive` flag for prompt-based config setup (233 tests passing)
 - Interactive debug mode implemented: `--debug` flag for step-through patch application with keyboard controls (233 tests passing)
 - Incremental builds implemented: `--incremental` flag with manifest-based change detection for faster rebuilds (252 tests passing)
+- Build cache implemented: `--cache` flag with SHA256-based caching of patch computation results (273 tests passing)
