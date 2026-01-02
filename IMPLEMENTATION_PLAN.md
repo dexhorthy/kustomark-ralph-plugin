@@ -38,8 +38,8 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 
 ## Current Status
 
-**All milestones complete!** M1-M4 plus deferred features implemented and tested:
-- 302 tests passing
+**All milestones complete!** M1-M4 plus ALL deferred/future features implemented and tested:
+- 322 tests passing
 - TypeScript type checking passes
 - ESLint linting passes
 
@@ -128,6 +128,17 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
   - Hover for top-level config keys (apiVersion, kind, output, resources, patches, watch)
   - Document synchronization for real-time validation
   - Position finding for accurate error locations
+- [x] Web UI
+  - `kustomark ui [path]` command to start web-based visual editor
+  - HTTP server with Bun.serve() on configurable port (--port, default: 3000)
+  - Single-page application with dark theme
+  - Sidebar showing resources and patches
+  - Overview tab with config summary and build/diff actions
+  - Config tab with syntax-highlighted YAML view
+  - Diff preview tab with colored diff output
+  - Lint tab showing validation issues
+  - REST API: /api/config, /api/resources, /api/patches, /api/lint, /api/diff, /api/build
+  - CORS support for cross-origin requests
 
 ## Progress Log
 
@@ -156,3 +167,4 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - Incremental builds implemented: `--incremental` flag with manifest-based change detection for faster rebuilds (252 tests passing)
 - Build cache implemented: `--cache` flag with SHA256-based caching of patch computation results (273 tests passing)
 - LSP server implemented: `kustomark lsp` command with diagnostics and hover information for IDE integration (302 tests passing)
+- Web UI implemented: `kustomark ui` command with visual patch editor, diff preview, and build controls (322 tests passing) - ALL FUTURE CANDIDATES COMPLETE!

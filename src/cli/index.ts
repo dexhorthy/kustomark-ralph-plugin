@@ -92,6 +92,8 @@ interface CliOptions {
   file?: string;
   // Watch command options
   debounce: number;
+  // UI command options
+  port: number;
   // Build command options
   stats: boolean;
   debug: boolean; // Step-through debug mode
@@ -117,6 +119,7 @@ function parseArgs(args: string[]): {
     interactive: false,
     strict: false,
     debounce: 300,
+    port: 3000,
     stats: false,
     debug: false,
     incremental: false,
@@ -171,6 +174,10 @@ function parseArgs(args: string[]): {
       options.debounce = parseInt(arg.slice("--debounce=".length), 10) || 300;
     } else if (arg === "--debounce" && i + 1 < args.length) {
       options.debounce = parseInt(args[++i], 10) || 300;
+    } else if (arg.startsWith("--port=")) {
+      options.port = parseInt(arg.slice("--port=".length), 10) || 3000;
+    } else if (arg === "--port" && i + 1 < args.length) {
+      options.port = parseInt(args[++i], 10) || 3000;
     } else if (arg === "--stats") {
       options.stats = true;
     } else if (arg === "--debug") {
@@ -1685,6 +1692,7 @@ Commands:
   explain [path]   Show resolution chain and patch details
   watch [path]     Rebuild on file changes
   lsp              Start Language Server Protocol server
+  ui [path]        Start Web UI for visual editing
 
 Options:
   --format=<text|json>  Output format (default: text)
@@ -1704,6 +1712,7 @@ Options:
   --strict              Treat warnings as errors (lint only)
   --file=<path>         Show lineage for specific file (explain only)
   --debounce=<ms>       Debounce delay in milliseconds (watch only, default: 300)
+  --port=<number>       Port for web UI (ui only, default: 3000)
 
 Examples:
   kustomark build ./my-project
@@ -1722,6 +1731,8 @@ Examples:
   kustomark lint ./my-project --strict
   kustomark explain ./team --file skills/commit.md
   kustomark watch ./team --debounce 500
+  kustomark ui ./my-project
+  kustomark ui ./my-project --port 8080
 
 Patch Groups:
   Assign patches to groups in kustomark.yaml:
@@ -1864,6 +1875,17 @@ async function main(): Promise<void> {
         // The server starts listening when the module is imported
         await import("../lsp/server.js");
         // LSP server runs until connection closes
+        break;
+      }
+
+      case "ui": {
+        // Start Web UI server
+        const { startWebServer } = await import("../web/server.js");
+        await startWebServer({
+          port: options.port,
+          configPath,
+        });
+        // Server runs until SIGINT
         break;
       }
 
