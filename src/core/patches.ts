@@ -1198,17 +1198,58 @@ function runPatchValidation(
 }
 
 /**
+ * Options for filtering patches by group.
+ */
+export interface GroupOptions {
+  enableGroups?: string[];
+  disableGroups?: string[];
+}
+
+/**
+ * Check if a patch should be applied based on group filtering.
+ *
+ * @param patch - The patch to check
+ * @param groupOptions - Group filtering options
+ * @returns true if the patch should be applied based on group rules
+ */
+function shouldApplyByGroup(patch: Patch, groupOptions?: GroupOptions): boolean {
+  if (!groupOptions) return true;
+
+  const { enableGroups, disableGroups } = groupOptions;
+  const patchGroup = patch.group;
+
+  // If enable-groups is specified, only patches in those groups (or ungrouped) are applied
+  if (enableGroups && enableGroups.length > 0) {
+    // Ungrouped patches are always applied when enable-groups is used
+    if (!patchGroup) return true;
+    // Only apply if patch's group is in the enabled list
+    return enableGroups.includes(patchGroup);
+  }
+
+  // If disable-groups is specified, patches in those groups are skipped
+  if (disableGroups && disableGroups.length > 0) {
+    if (patchGroup && disableGroups.includes(patchGroup)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
  * Apply an array of patches to markdown content.
  *
  * @param content - The markdown content to patch
  * @param patches - Array of patches to apply in order
  * @param filePath - Path of the file being patched (for include/exclude matching)
+ * @param groupOptions - Optional group filtering options
  * @returns PatchResult with patched content, count of applied patches, and warnings
  */
 export function applyPatches(
   content: string,
   patches: Patch[],
-  filePath: string
+  filePath: string,
+  groupOptions?: GroupOptions
 ): PatchResult {
   let currentContent = content;
   let applied = 0;
@@ -1217,6 +1258,11 @@ export function applyPatches(
   for (const patch of patches) {
     // Check if patch should be applied to this file
     if (!shouldApplyPatch(patch, filePath)) {
+      continue;
+    }
+
+    // Check if patch should be applied based on group filtering
+    if (!shouldApplyByGroup(patch, groupOptions)) {
       continue;
     }
 

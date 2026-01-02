@@ -19,6 +19,7 @@ const patchBaseSchema = z.object({
   exclude: z.array(z.string()).optional(),
   onNoMatch: onNoMatchSchema.optional(),
   validate: patchValidationSchema,
+  group: z.string().optional(),
 });
 
 // Global validator schema (M2)

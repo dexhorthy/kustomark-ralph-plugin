@@ -159,3 +159,52 @@ watch:
     expect(config.watch?.onBuild).toEqual([]);
   });
 });
+
+describe("Patch Groups Config", () => {
+  test("parses patches with group field", () => {
+    const yaml = `
+apiVersion: kustomark/v1
+kind: Kustomization
+output: ./out
+resources:
+  - "*.md"
+patches:
+  - op: replace
+    old: "debug=true"
+    new: "debug=false"
+    group: production
+  - op: replace
+    old: "localhost"
+    new: "api.example.com"
+    group: production
+  - op: replace
+    old: "foo"
+    new: "bar"
+`;
+    const config = parseConfig(yaml);
+
+    expect(config.patches).toBeDefined();
+    expect(config.patches).toHaveLength(3);
+    expect(config.patches![0].group).toBe("production");
+    expect(config.patches![1].group).toBe("production");
+    expect(config.patches![2].group).toBeUndefined();
+  });
+
+  test("parses patches without group field", () => {
+    const yaml = `
+apiVersion: kustomark/v1
+kind: Kustomization
+output: ./out
+resources:
+  - "*.md"
+patches:
+  - op: replace
+    old: "foo"
+    new: "bar"
+`;
+    const config = parseConfig(yaml);
+
+    expect(config.patches).toBeDefined();
+    expect(config.patches![0].group).toBeUndefined();
+  });
+});

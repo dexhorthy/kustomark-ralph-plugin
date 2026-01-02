@@ -1080,3 +1080,116 @@ version: 1.0.0`;
     });
   });
 });
+
+describe("Patch Groups", () => {
+  test("applies all patches when no group options specified", () => {
+    const content = "foo bar baz";
+    const patches: Patch[] = [
+      { op: "replace", old: "foo", new: "FOO", group: "a" },
+      { op: "replace", old: "bar", new: "BAR", group: "b" },
+      { op: "replace", old: "baz", new: "BAZ" }, // ungrouped
+    ];
+
+    const result = applyPatches(content, patches, "test.md");
+
+    expect(result.content).toBe("FOO BAR BAZ");
+    expect(result.applied).toBe(3);
+  });
+
+  test("enables only specific groups with enableGroups", () => {
+    const content = "foo bar baz";
+    const patches: Patch[] = [
+      { op: "replace", old: "foo", new: "FOO", group: "a" },
+      { op: "replace", old: "bar", new: "BAR", group: "b" },
+      { op: "replace", old: "baz", new: "BAZ" }, // ungrouped
+    ];
+
+    const result = applyPatches(content, patches, "test.md", { enableGroups: ["a"] });
+
+    expect(result.content).toBe("FOO bar BAZ"); // 'a' group and ungrouped applied
+    expect(result.applied).toBe(2);
+  });
+
+  test("disables specific groups with disableGroups", () => {
+    const content = "foo bar baz";
+    const patches: Patch[] = [
+      { op: "replace", old: "foo", new: "FOO", group: "a" },
+      { op: "replace", old: "bar", new: "BAR", group: "b" },
+      { op: "replace", old: "baz", new: "BAZ" }, // ungrouped
+    ];
+
+    const result = applyPatches(content, patches, "test.md", { disableGroups: ["a"] });
+
+    expect(result.content).toBe("foo BAR BAZ"); // 'a' group skipped
+    expect(result.applied).toBe(2);
+  });
+
+  test("enables multiple groups", () => {
+    const content = "foo bar baz qux";
+    const patches: Patch[] = [
+      { op: "replace", old: "foo", new: "FOO", group: "a" },
+      { op: "replace", old: "bar", new: "BAR", group: "b" },
+      { op: "replace", old: "baz", new: "BAZ", group: "c" },
+      { op: "replace", old: "qux", new: "QUX" }, // ungrouped
+    ];
+
+    const result = applyPatches(content, patches, "test.md", { enableGroups: ["a", "c"] });
+
+    expect(result.content).toBe("FOO bar BAZ QUX"); // 'a', 'c' groups and ungrouped applied
+    expect(result.applied).toBe(3);
+  });
+
+  test("disables multiple groups", () => {
+    const content = "foo bar baz qux";
+    const patches: Patch[] = [
+      { op: "replace", old: "foo", new: "FOO", group: "a" },
+      { op: "replace", old: "bar", new: "BAR", group: "b" },
+      { op: "replace", old: "baz", new: "BAZ", group: "c" },
+      { op: "replace", old: "qux", new: "QUX" }, // ungrouped
+    ];
+
+    const result = applyPatches(content, patches, "test.md", { disableGroups: ["a", "c"] });
+
+    expect(result.content).toBe("foo BAR baz QUX"); // 'a', 'c' groups skipped
+    expect(result.applied).toBe(2);
+  });
+
+  test("ungrouped patches always apply with enableGroups", () => {
+    const content = "foo bar";
+    const patches: Patch[] = [
+      { op: "replace", old: "foo", new: "FOO", group: "a" },
+      { op: "replace", old: "bar", new: "BAR" }, // ungrouped
+    ];
+
+    const result = applyPatches(content, patches, "test.md", { enableGroups: ["nonexistent"] });
+
+    expect(result.content).toBe("foo BAR"); // only ungrouped applied
+    expect(result.applied).toBe(1);
+  });
+
+  test("empty enableGroups applies all patches", () => {
+    const content = "foo bar";
+    const patches: Patch[] = [
+      { op: "replace", old: "foo", new: "FOO", group: "a" },
+      { op: "replace", old: "bar", new: "BAR", group: "b" },
+    ];
+
+    const result = applyPatches(content, patches, "test.md", { enableGroups: [] });
+
+    expect(result.content).toBe("FOO BAR");
+    expect(result.applied).toBe(2);
+  });
+
+  test("empty disableGroups applies all patches", () => {
+    const content = "foo bar";
+    const patches: Patch[] = [
+      { op: "replace", old: "foo", new: "FOO", group: "a" },
+      { op: "replace", old: "bar", new: "BAR", group: "b" },
+    ];
+
+    const result = applyPatches(content, patches, "test.md", { disableGroups: [] });
+
+    expect(result.content).toBe("FOO BAR");
+    expect(result.applied).toBe(2);
+  });
+});

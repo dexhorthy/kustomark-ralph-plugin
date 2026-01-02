@@ -6,7 +6,7 @@ import { join, dirname, resolve, relative } from "path";
 import * as Diff from "diff";
 import { loadConfigFile, generateJsonSchema } from "../core/config.js";
 import { resolveResources } from "../core/resources.js";
-import { applyPatches } from "../core/patches.js";
+import { applyPatches, type GroupOptions } from "../core/patches.js";
 import { runGlobalValidators, type ValidationError } from "../core/validation.js";
 import { applyFileOperations, applyFileOperationResults } from "../core/file-operations.js";
 import { lintConfig, type LintResult } from "../core/lint.js";
@@ -77,6 +77,9 @@ interface CliOptions {
   debounce: number;
   // Build command options
   stats: boolean;
+  // Patch group options
+  enableGroups: string[];
+  disableGroups: string[];
 }
 
 // Parse command line arguments
@@ -93,6 +96,8 @@ function parseArgs(args: string[]): {
     strict: false,
     debounce: 300,
     stats: false,
+    enableGroups: [],
+    disableGroups: [],
   };
 
   let command: string | null = null;
@@ -142,6 +147,14 @@ function parseArgs(args: string[]): {
       options.debounce = parseInt(args[++i], 10) || 300;
     } else if (arg === "--stats") {
       options.stats = true;
+    } else if (arg.startsWith("--enable-groups=")) {
+      options.enableGroups = arg.slice("--enable-groups=".length).split(",").filter(Boolean);
+    } else if (arg === "--enable-groups" && i + 1 < args.length) {
+      options.enableGroups = args[++i].split(",").filter(Boolean);
+    } else if (arg.startsWith("--disable-groups=")) {
+      options.disableGroups = arg.slice("--disable-groups=".length).split(",").filter(Boolean);
+    } else if (arg === "--disable-groups" && i + 1 < args.length) {
+      options.disableGroups = args[++i].split(",").filter(Boolean);
     } else if (!arg.startsWith("-")) {
       positionalArgs.push(arg);
     }
@@ -290,16 +303,23 @@ async function build(
     const writtenFiles = new Set<string>();
     const existingFiles = await getOutputFiles(outputDir);
 
+    // Build group options from CLI flags
+    const groupOptions: GroupOptions = {
+      enableGroups: options.enableGroups.length > 0 ? options.enableGroups : undefined,
+      disableGroups: options.disableGroups.length > 0 ? options.disableGroups : undefined,
+    };
+
     // Process each resource
     for (const resource of processedResources) {
       logger.verbose(`Processing ${resource.relativePath}`, 2);
       filesProcessed++;
 
-      // Apply content patches
+      // Apply content patches with group filtering
       const patchResult = applyPatches(
         resource.content,
         patches,
-        resource.relativePath
+        resource.relativePath,
+        groupOptions
       );
 
       result.patchesApplied += patchResult.applied;
@@ -423,15 +443,22 @@ async function diff(
     const existingFiles = await getOutputFiles(outputDir);
     const processedFiles = new Set<string>();
 
+    // Build group options from CLI flags
+    const groupOptions: GroupOptions = {
+      enableGroups: options.enableGroups.length > 0 ? options.enableGroups : undefined,
+      disableGroups: options.disableGroups.length > 0 ? options.disableGroups : undefined,
+    };
+
     // Process each resource
     for (const resource of processedResources) {
       logger.verbose(`Processing ${resource.relativePath}`, 2);
 
-      // Apply content patches
+      // Apply content patches with group filtering
       const patchResult = applyPatches(
         resource.content,
         patches,
-        resource.relativePath
+        resource.relativePath,
+        groupOptions
       );
 
       const outputPath = join(outputDir, resource.relativePath);
@@ -1036,6 +1063,8 @@ Options:
   --format=<text|json>  Output format (default: text)
   --clean               Remove files not in source (build only)
   --stats               Include build statistics (build only)
+  --enable-groups=<g>   Only apply patches in these groups (comma-separated)
+  --disable-groups=<g>  Skip patches in these groups (comma-separated)
   -v, -vv, -vvv         Verbose output (increasing levels)
   -q                    Quiet mode (errors only)
   --base=<path>         Base config to extend (init only)
@@ -1046,6 +1075,8 @@ Options:
 
 Examples:
   kustomark build ./my-project
+  kustomark build ./my-project --enable-groups=production
+  kustomark build ./my-project --disable-groups=debug,verbose
   kustomark diff ./my-project --format=json
   kustomark validate ./my-project -v
   kustomark init ./overlays/team --base ../company
@@ -1053,6 +1084,21 @@ Examples:
   kustomark lint ./my-project --strict
   kustomark explain ./team --file skills/commit.md
   kustomark watch ./team --debounce 500
+
+Patch Groups:
+  Assign patches to groups in kustomark.yaml:
+    patches:
+      - op: replace
+        old: "debug=true"
+        new: "debug=false"
+        group: production
+      - op: replace
+        old: "localhost"
+        new: "api.example.com"
+        group: production
+
+  Use --enable-groups to only apply patches in specific groups (ungrouped patches always apply).
+  Use --disable-groups to skip patches in specific groups.
 
 Watch Hooks:
   Configure shell commands to run on watch events in kustomark.yaml:
