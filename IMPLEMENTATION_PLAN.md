@@ -39,7 +39,7 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 ## Current Status
 
 **All milestones complete!** M1-M4 plus deferred features implemented and tested:
-- 220 tests passing
+- 233 tests passing
 - TypeScript type checking passes
 - ESLint linting passes
 
@@ -96,6 +96,14 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
   - Prompts for base path, resource pattern, output directory
   - Option to add example patch to generated config
   - Uses readline for interactive input
+- [x] Interactive debug mode
+  - `--debug` flag for build command
+  - Step-through patch application with interactive prompts
+  - Keyboard controls: [n]ext, [s]kip, [d]iff, [q]uit, [h]elp
+  - Shows patch details before each application
+  - Diff preview shows what patch would change
+  - Summary at end shows applied, skipped, and remaining patches
+  - Forces sequential file processing in debug mode
 
 ## Progress Log
 
@@ -120,3 +128,4 @@ Based on the specs, M1 MVP must be completed first as all other milestones depen
 - Parallel builds implemented: --parallel flag for concurrent file processing in build and diff commands (220 tests passing)
 - Patch inheritance implemented: `id` and `extends` fields for DRY patch definitions with inheritance resolution (233 tests passing)
 - Interactive init wizard implemented: `--interactive` flag for prompt-based config setup (233 tests passing)
+- Interactive debug mode implemented: `--debug` flag for step-through patch application with keyboard controls (233 tests passing)

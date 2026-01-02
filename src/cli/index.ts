@@ -79,6 +79,7 @@ interface CliOptions {
   debounce: number;
   // Build command options
   stats: boolean;
+  debug: boolean; // Step-through debug mode
   parallel: number; // 0 = sequential, >0 = concurrency limit
   // Patch group options
   enableGroups: string[];
@@ -100,6 +101,7 @@ function parseArgs(args: string[]): {
     strict: false,
     debounce: 300,
     stats: false,
+    debug: false,
     parallel: 0,
     enableGroups: [],
     disableGroups: [],
@@ -152,6 +154,8 @@ function parseArgs(args: string[]): {
       options.debounce = parseInt(args[++i], 10) || 300;
     } else if (arg === "--stats") {
       options.stats = true;
+    } else if (arg === "--debug") {
+      options.debug = true;
     } else if (arg === "--interactive" || arg === "-i") {
       options.interactive = true;
     } else if (arg === "--parallel") {
@@ -425,25 +429,69 @@ async function build(
     };
 
     // Process resources (parallel or sequential based on --parallel flag)
-    const resourceResults = await processInParallel(
-      processedResources,
-      processResource,
-      options.parallel
-    );
+    // Debug mode forces sequential processing
+    let debugQuit = false;
 
-    // Aggregate results
-    for (const resourceResult of resourceResults) {
-      result.patchesApplied += resourceResult.patchesApplied;
-      result.warnings.push(...resourceResult.warnings);
-      writtenFiles.add(resourceResult.relativePath);
-      result.filesWritten++;
-      filesProcessed++;
+    if (options.debug) {
+      // Debug mode: process files sequentially with interactive step-through
+      console.log("\n🔍 Debug Mode - Step through patches for each file\n");
+      console.log(`   ${processedResources.length} file(s) to process`);
+      console.log(`   ${patches.length} patch(es) defined\n`);
 
-      if (options.stats) {
-        totalBytes += resourceResult.bytes;
-        patchesSkipped += Math.max(0, resourceResult.eligiblePatches - resourceResult.patchesApplied);
-        for (const [op, count] of Object.entries(resourceResult.opCounts)) {
-          byOperation[op] = (byOperation[op] || 0) + count;
+      for (const resource of processedResources) {
+        if (debugQuit) break;
+
+        const debugResult = await applyPatchesDebug(
+          resource.content,
+          patches as unknown as Array<Record<string, unknown>>,
+          resource.relativePath,
+          groupOptions
+        );
+
+        if (debugResult.quit) {
+          debugQuit = true;
+          break;
+        }
+
+        // Write output file
+        const outputPath = join(outputDir, resource.relativePath);
+        const outputDirPath = dirname(outputPath);
+        await mkdir(outputDirPath, { recursive: true });
+        await writeFile(outputPath, debugResult.content, "utf-8");
+
+        result.patchesApplied += debugResult.applied;
+        writtenFiles.add(resource.relativePath);
+        result.filesWritten++;
+        filesProcessed++;
+
+        console.log(`\n✅ Wrote ${outputPath} (${debugResult.applied} patches applied, ${debugResult.skipped} skipped)\n`);
+      }
+
+      if (debugQuit) {
+        logger.info("Debug session ended early by user");
+      }
+    } else {
+      // Normal mode: use parallel processing
+      const resourceResults = await processInParallel(
+        processedResources,
+        processResource,
+        options.parallel
+      );
+
+      // Aggregate results
+      for (const resourceResult of resourceResults) {
+        result.patchesApplied += resourceResult.patchesApplied;
+        result.warnings.push(...resourceResult.warnings);
+        writtenFiles.add(resourceResult.relativePath);
+        result.filesWritten++;
+        filesProcessed++;
+
+        if (options.stats) {
+          totalBytes += resourceResult.bytes;
+          patchesSkipped += Math.max(0, resourceResult.eligiblePatches - resourceResult.patchesApplied);
+          for (const [op, count] of Object.entries(resourceResult.opCounts)) {
+            byOperation[op] = (byOperation[op] || 0) + count;
+          }
         }
       }
     }
@@ -799,6 +847,201 @@ async function promptConfirm(question: string, defaultValue: boolean = false): P
 
   if (!answer) return defaultValue;
   return answer.toLowerCase().startsWith("y");
+}
+
+/**
+ * Debug step action types
+ */
+type DebugAction = "next" | "skip" | "quit" | "diff" | "help";
+
+/**
+ * Prompt for debug step action.
+ * Returns the action to take.
+ */
+async function promptDebugStep(): Promise<DebugAction> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve) => {
+    rl.question("[n]ext [s]kip [d]iff [q]uit [h]elp > ", (answer) => {
+      rl.close();
+      const cmd = answer.trim().toLowerCase();
+      if (cmd === "n" || cmd === "next" || cmd === "") {
+        resolve("next");
+      } else if (cmd === "s" || cmd === "skip") {
+        resolve("skip");
+      } else if (cmd === "d" || cmd === "diff") {
+        resolve("diff");
+      } else if (cmd === "q" || cmd === "quit") {
+        resolve("quit");
+      } else if (cmd === "h" || cmd === "help") {
+        resolve("help");
+      } else {
+        resolve("next"); // default to next
+      }
+    });
+  });
+}
+
+/**
+ * Show debug help.
+ */
+function showDebugHelp(): void {
+  console.log(`
+Debug Mode Commands:
+  n, next   - Apply this patch and continue (default)
+  s, skip   - Skip this patch and continue
+  d, diff   - Show what this patch will change
+  q, quit   - Stop debugging and exit
+  h, help   - Show this help
+`);
+}
+
+/**
+ * Format a patch for debug display.
+ */
+function formatPatchInfo(patch: Record<string, unknown>, index: number): string {
+  const op = patch.op as string;
+  let details = "";
+
+  switch (op) {
+    case "replace":
+      details = `"${patch.old}" → "${patch.new}"`;
+      break;
+    case "replace-regex":
+      details = `/${patch.pattern}/ → "${patch.replacement}"`;
+      break;
+    case "remove-section":
+      details = `section: ${patch.id}`;
+      break;
+    case "replace-section":
+    case "prepend-to-section":
+    case "append-to-section":
+      details = `section: ${patch.id}`;
+      break;
+    case "set-frontmatter":
+      details = `${patch.key} = ${JSON.stringify(patch.value)}`;
+      break;
+    case "remove-frontmatter":
+    case "rename-frontmatter":
+      details = `key: ${patch.key || patch.old}`;
+      break;
+    case "insert-after-line":
+    case "insert-before-line":
+    case "replace-line":
+      details = patch.match ? `match: "${patch.match}"` : `pattern: /${patch.pattern}/`;
+      break;
+    case "delete-between":
+    case "replace-between":
+      details = `"${patch.start}" ... "${patch.end}"`;
+      break;
+    case "rename-header":
+      details = `${patch.id} → "${patch.new}"`;
+      break;
+    case "move-section":
+      details = `${patch.id} ${patch.after ? `after ${patch.after}` : `before ${patch.before}`}`;
+      break;
+    case "change-section-level":
+      details = `${patch.id} delta: ${patch.delta}`;
+      break;
+    default:
+      details = JSON.stringify(patch).slice(0, 60);
+  }
+
+  const include = patch.include ? ` include: ${JSON.stringify(patch.include)}` : "";
+  const exclude = patch.exclude ? ` exclude: ${JSON.stringify(patch.exclude)}` : "";
+  const group = patch.group ? ` [group: ${patch.group}]` : "";
+
+  return `[${index + 1}] ${op}: ${details}${include}${exclude}${group}`;
+}
+
+/**
+ * Apply patches with interactive debug mode.
+ * Allows step-through of each patch with user confirmation.
+ */
+async function applyPatchesDebug(
+  content: string,
+  patches: Array<Record<string, unknown>>,
+  filePath: string,
+  groupOptions: GroupOptions
+): Promise<{ content: string; applied: number; skipped: number; quit: boolean }> {
+  let currentContent = content;
+  let applied = 0;
+  let skipped = 0;
+
+  console.log(`\n📄 File: ${filePath}`);
+  console.log(`   ${patches.length} patch(es) to review\n`);
+
+  for (let i = 0; i < patches.length; i++) {
+    const patch = patches[i];
+
+    // Show patch info
+    console.log(`\n${formatPatchInfo(patch, i)}`);
+
+    let action: DebugAction = "next";
+    let decided = false;
+
+    while (!decided) {
+      action = await promptDebugStep();
+
+      switch (action) {
+        case "help":
+          showDebugHelp();
+          break;
+        case "diff": {
+          // Show what would change by applying this single patch
+          const testResult = applyPatches(
+            currentContent,
+            [patch] as Parameters<typeof applyPatches>[1],
+            filePath,
+            groupOptions
+          );
+          if (testResult.content !== currentContent) {
+            const diff = Diff.createPatch(filePath, currentContent, testResult.content, "before", "after");
+            console.log("\n" + diff);
+          } else {
+            console.log("  (no changes for this file)");
+          }
+          break;
+        }
+        case "next":
+        case "skip":
+        case "quit":
+          decided = true;
+          break;
+      }
+    }
+
+    if (action === "quit") {
+      console.log("\n⏹️  Debug session ended by user\n");
+      return { content: currentContent, applied, skipped: patches.length - i, quit: true };
+    }
+
+    if (action === "skip") {
+      console.log("  ⏭️  Skipped");
+      skipped++;
+      continue;
+    }
+
+    // Apply this single patch
+    const result = applyPatches(
+      currentContent,
+      [patch] as Parameters<typeof applyPatches>[1],
+      filePath,
+      groupOptions
+    );
+    currentContent = result.content;
+    if (result.applied > 0) {
+      console.log("  ✅ Applied");
+      applied++;
+    } else {
+      console.log("  ⚠️  No match (patch didn't apply)");
+    }
+  }
+
+  return { content: currentContent, applied, skipped, quit: false };
 }
 
 /**
@@ -1262,6 +1505,7 @@ Options:
   --format=<text|json>  Output format (default: text)
   --clean               Remove files not in source (build only)
   --stats               Include build statistics (build only)
+  --debug               Step-through debug mode (build only)
   --parallel[=<n>]      Process files in parallel (default: 4 workers)
   --enable-groups=<g>   Only apply patches in these groups (comma-separated)
   --disable-groups=<g>  Skip patches in these groups (comma-separated)
@@ -1278,6 +1522,7 @@ Examples:
   kustomark build ./my-project
   kustomark build ./my-project --parallel
   kustomark build ./my-project --parallel=8
+  kustomark build ./my-project --debug
   kustomark build ./my-project --enable-groups=production
   kustomark build ./my-project --disable-groups=debug,verbose
   kustomark diff ./my-project --format=json
